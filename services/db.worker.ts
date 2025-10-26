@@ -1,6 +1,8 @@
 // This file runs in a separate thread and acts as a message-passing
 // wrapper around the core database logic.
 
+importScripts('https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js');
+
 import * as dbLogic from './db-logic';
 
 self.onmessage = async (e: MessageEvent) => {
