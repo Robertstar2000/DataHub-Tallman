@@ -321,8 +321,6 @@ function populateNewDatabase(db: Database) {
 }
 
 export async function initializeDatabase(initSqlJs: any, dbBytes?: Uint8Array): Promise<string> {
-  // sql-wasm.js is loaded either via <script> tag or ES module import.
-  // We need to tell it where to find the wasm file.
   const SQL = await initSqlJs({
     locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/${file}`
   });

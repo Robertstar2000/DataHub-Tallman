@@ -75,9 +75,13 @@ export const initializeDatabase = (dbBytes?: Uint8Array): Promise<string> => {
         });
     } else {
         useFallback = true;
-        initializationPromise = dbLogic.initializeDatabase((self as any).initSqlJs, dbBytes).then(result => {
-            fallbackInitialized = true;
-            return result;
+        // Dynamically import sql.js on the main thread if the worker fails.
+        initializationPromise = import('https://esm.sh/sql.js@1.10.3').then(sqlJsModule => {
+            const initSqlJs = sqlJsModule.default;
+            return dbLogic.initializeDatabase(initSqlJs, dbBytes).then(result => {
+                fallbackInitialized = true;
+                return result;
+            });
         });
     }
     
