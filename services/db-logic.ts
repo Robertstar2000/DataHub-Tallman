@@ -322,9 +322,12 @@ function populateNewDatabase(db: Database) {
 }
 
 export async function initializeDatabase(dbBytes?: Uint8Array): Promise<string> {
-  const SQL = await initSqlJs({
-    locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}`
-  });
+  // Directly fetch the wasm binary to bypass any module loading issues.
+  // Using a reliable CDN for a direct, path to the dist file.
+  const wasmUrl = 'https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.wasm';
+  const wasmBinary = await(await fetch(wasmUrl)).arrayBuffer();
+  
+  const SQL = await initSqlJs({ wasmBinary });
   
   idbPersistenceEnabled = await canUseIndexedDB();
 
