@@ -1,8 +1,7 @@
 // This file runs in a separate thread and acts as a message-passing
 // wrapper around the core database logic.
 
-importScripts('https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js');
-
+import initSqlJs from 'https://esm.sh/sql.js@1.10.3';
 import * as dbLogic from './db-logic';
 
 self.onmessage = async (e: MessageEvent) => {
@@ -12,7 +11,7 @@ self.onmessage = async (e: MessageEvent) => {
         let result: any;
         switch(action) {
             case 'initializeDatabase':
-                result = await dbLogic.initializeDatabase(payload?.dbBytes);
+                result = await dbLogic.initializeDatabase(initSqlJs, payload?.dbBytes);
                 break;
             case 'executeQuery':
                 result = dbLogic.executeQuery(payload.query, payload.params);

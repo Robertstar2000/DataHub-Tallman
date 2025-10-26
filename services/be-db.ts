@@ -75,7 +75,7 @@ export const initializeDatabase = (dbBytes?: Uint8Array): Promise<string> => {
         });
     } else {
         useFallback = true;
-        initializationPromise = dbLogic.initializeDatabase(dbBytes).then(result => {
+        initializationPromise = dbLogic.initializeDatabase((self as any).initSqlJs, dbBytes).then(result => {
             fallbackInitialized = true;
             return result;
         });
