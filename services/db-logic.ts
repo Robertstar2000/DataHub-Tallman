@@ -322,7 +322,9 @@ function populateNewDatabase(db: Database) {
 }
 
 export async function initializeDatabase(dbBytes?: Uint8Array): Promise<string> {
-  const SQL = await initSqlJs({ locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}` });
+  const SQL = await initSqlJs({
+    locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}`
+  });
   
   idbPersistenceEnabled = await canUseIndexedDB();
 
