@@ -2,15 +2,17 @@
 // within a Web Worker or directly on the main thread as a fallback.
 
 import type { Database } from 'sql.js';
+import initSqlJs from 'sql.js';
 import { unstructuredData } from '../data/unstructuredData';
 import type { UnstructuredDocument } from '../data/unstructuredData';
-import { initialCustomServers, initialMcpServers, indexedDocumentCollections, externalApiConnectors } from '../data/mcpServers';
+import { initialCustomServers, initialMcpServers, indexedDocumentCollections, externalApiConnectors, marketplaceMcpServers } from '../data/mcpServers';
 import { initialWorkflows } from '../data/workflows';
 import { schemaMetadata } from '../data/schemaMetadata';
 // FIX: Added WidgetConfig to the import list to resolve the type error.
 import type { Workflow, McpServer, Dashboard as DashboardType, User, AuditLog, PiiFinding, DataAccessPolicy, PredictionModel, WorkflowVersion, ExecutionLog, WidgetConfig } from '../types';
 
 let db: Database | null = null;
+let SQL: any = null; // To hold the initialized sql.js object
 let idbPersistenceEnabled = true;
 
 // --- IndexedDB Helpers ---
@@ -202,7 +204,7 @@ function populateNewDatabase(db: Database) {
     db.run(`CREATE TABLE gdrive_files ( file_id TEXT PRIMARY KEY, file_name TEXT, mime_type TEXT, owner_email TEXT, last_modified TEXT, file_size INTEGER );`);
     db.run(`CREATE TABLE stackoverflow_questions ( question_id INTEGER PRIMARY KEY, title TEXT, body TEXT, author_email TEXT, creation_date TEXT, tags TEXT );`);
     db.run(`CREATE TABLE stackoverflow_answers ( answer_id INTEGER PRIMARY KEY, question_id INTEGER, body TEXT, author_email TEXT, is_accepted INTEGER, creation_date TEXT );`);
-    db.run(`CREATE TABLE mcp_servers ( id TEXT PRIMARY KEY, name TEXT NOT NULL, url TEXT, type TEXT, description TEXT, is_loaded INTEGER DEFAULT 0 );`);
+    db.run(`CREATE TABLE mcp_servers ( id TEXT PRIMARY KEY, name TEXT NOT NULL, url TEXT, type TEXT, description TEXT, is_loaded INTEGER DEFAULT 0, is_installed INTEGER DEFAULT 0, category TEXT );`);
     db.run(`CREATE TABLE workflows ( id TEXT PRIMARY KEY, name TEXT NOT NULL, lastExecuted TEXT, status TEXT, sources TEXT, transformer TEXT, destination TEXT, repartition INTEGER, trigger TEXT, transformerCode TEXT, dependencies TEXT, triggersOnSuccess TEXT, nodes TEXT, edges TEXT, currentVersion INTEGER );`);
     db.run(`CREATE TABLE dashboards ( id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT );`);
     db.run(`CREATE TABLE dashboard_widgets ( id TEXT PRIMARY KEY, dashboard_id TEXT, title TEXT, type TEXT, colSpan INTEGER, sqlQuery TEXT );`);
@@ -285,12 +287,14 @@ function populateNewDatabase(db: Database) {
     db.run("INSERT INTO stackoverflow_answers (question_id, body, author_email, is_accepted, creation_date) VALUES (1, 'You need to use the service account credentials stored in the vault. See the documentation link here...', 'alice@innovate.com', 1, '2023-02-20 15:00:00');");
     db.run("INSERT INTO data_lake_table_sources VALUES ('stackoverflow_answers', ?);", [soMcp]);
     
-    const libraryServers: McpServer[] = initialMcpServers.map((s, i) => ({ ...s, id: `lib-server-${i}`, type: 'Official' }));
+    const libraryServers: McpServer[] = initialMcpServers.map((s, i) => ({ ...s, id: `lib-server-${i}`, type: 'Official' } as McpServer));
     const docCollections: McpServer[] = indexedDocumentCollections.map((s, i) => ({ ...s, id: `doc-coll-${i}`, type: 'DocumentCollection'}) as McpServer);
     const apiConnectors: McpServer[] = externalApiConnectors.map((s, i) => ({ ...s, id: `api-conn-${i}`, type: 'ExternalAPI'}) as McpServer);
+    const marketServers: McpServer[] = marketplaceMcpServers.map((s, i) => ({ ...s, id: `market-server-${i}`}) as McpServer);
 
-    [...libraryServers, ...initialCustomServers, ...docCollections, ...apiConnectors].forEach(s => {
-      db.run('INSERT INTO mcp_servers (id, name, url, type, description, is_loaded) VALUES (?, ?, ?, ?, ?, ?)', [s.id, s.name, s.url, s.type, s.description, s.type === 'Custom' ? 1 : 0]);
+
+    [...libraryServers, ...initialCustomServers, ...docCollections, ...apiConnectors, ...marketServers].forEach(s => {
+      db.run('INSERT INTO mcp_servers (id, name, url, type, description, is_loaded, is_installed, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [s.id, s.name, s.url, s.type, s.description, s.isLoaded ? 1 : 0, s.isInstalled ? 1 : 0, s.category || null]);
     });
     initialWorkflows.forEach(w => {
       db.run('INSERT INTO workflows (id, name, lastExecuted, status, sources, transformer, destination, repartition, trigger, transformerCode, dependencies, triggersOnSuccess, nodes, edges, currentVersion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
@@ -301,7 +305,7 @@ function populateNewDatabase(db: Database) {
         w.status, 
         (w.sources || []).join('|||'), 
         w.transformer || null, 
-        w.destination || null, 
+        w.destination || null,
 // FIX: Provide a default null value for optional fields to prevent 'undefined' binding error.
         w.repartition || null,
         w.trigger || null, 
@@ -320,10 +324,26 @@ function populateNewDatabase(db: Database) {
     initialWidgets.forEach(w => { db.run("INSERT INTO dashboard_widgets VALUES (?, ?, ?, ?, ?, ?)", [w.id, 'sales-overview-1', w.title, w.type, w.colSpan, w.sqlQuery]); });
 }
 
-export async function initializeDatabase(initSqlJs: any, dbBytes?: Uint8Array): Promise<string> {
-  const SQL = await initSqlJs({
-    locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/${file}`
-  });
+export async function initializeDatabase(dbBytes?: Uint8Array): Promise<string> {
+  // Initialize SQL.js library itself. This only needs to be done once.
+  if (!SQL) {
+    try {
+      // The manual fetch provides a robust way to load the wasm file, bypassing
+      // the library's internal logic which can fail in some environments.
+      const wasmUrl = 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.wasm';
+      const response = await fetch(wasmUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch sql.js WASM module: ${response.statusText}`);
+      }
+      const wasmBinary = await response.arrayBuffer();
+      SQL = await initSqlJs({ wasmBinary });
+    } catch (err) {
+      console.error('Failed to initialize sql.js:', err);
+      // Re-throw the error to be handled by the UI, preventing the app from
+      // getting into a broken state.
+      throw err;
+    }
+  }
   
   idbPersistenceEnabled = await canUseIndexedDB();
 
@@ -533,7 +553,7 @@ export function getDashboardStats() {
     return { dbStats: getDbStatistics(), vectorStats: getVectorStoreStats(), mcpCount: mcpResult.data[0]?.count || 0, workflowCounts };
 }
 
-export function getMcpServers(): McpServer[] { return executeQuery("SELECT *, is_loaded as isLoaded FROM mcp_servers").data as McpServer[]; }
+export function getMcpServers(): McpServer[] { return executeQuery("SELECT *, is_loaded as isLoaded, is_installed as isInstalled FROM mcp_servers").data as McpServer[]; }
 export function getWorkflows(): Workflow[] {
     const rawWorkflows = executeQuery("SELECT * FROM workflows").data as any[];
     return rawWorkflows.map(w => ({ 
@@ -546,7 +566,7 @@ export function getWorkflows(): Workflow[] {
     }));
 };
 export function getLoadedMcpServers(): McpServer[] { return executeQuery("SELECT * FROM mcp_servers WHERE is_loaded = 1").data as McpServer[]; }
-export function saveMcpServer(server: McpServer) { executeQuery("REPLACE INTO mcp_servers (id, name, url, type, description, is_loaded) VALUES (?, ?, ?, ?, ?, ?)", [server.id, server.name, server.url, server.type, server.description, server.isLoaded ? 1 : 0]); };
+export function saveMcpServer(server: McpServer) { executeQuery("REPLACE INTO mcp_servers (id, name, url, type, description, is_loaded, is_installed, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [server.id, server.name, server.url, server.type, server.description, server.isLoaded ? 1 : 0, server.isInstalled ? 1 : 0, server.category || null]); };
 export function saveWorkflow(workflow: Workflow, asNewVersion: boolean) { 
     let versionToSave = workflow.currentVersion || 1;
     if (asNewVersion) {

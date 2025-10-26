@@ -75,14 +75,14 @@ export const initializeDatabase = (dbBytes?: Uint8Array): Promise<string> => {
         });
     } else {
         useFallback = true;
-        // Dynamically import sql.js on the main thread if the worker fails.
-        initializationPromise = import('https://esm.sh/sql.js@1.10.3').then(sqlJsModule => {
-            const initSqlJs = sqlJsModule.default;
-            return dbLogic.initializeDatabase(initSqlJs, dbBytes).then(result => {
+        initializationPromise = dbLogic.initializeDatabase(dbBytes)
+            .then(result => {
                 fallbackInitialized = true;
                 return result;
+            }).catch(err => {
+                console.error("Main-thread DB initialization failed:", err);
+                throw new Error(`Failed to initialize database: ${err.message}`);
             });
-        });
     }
     
     return initializationPromise;
