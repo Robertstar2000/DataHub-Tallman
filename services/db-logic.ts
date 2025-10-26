@@ -1,7 +1,6 @@
 // This file contains the core database logic, designed to be run either
 // within a Web Worker or directly on the main thread as a fallback.
 
-import initSqlJs from 'sql.js';
 import type { Database } from 'sql.js';
 import { unstructuredData } from '../data/unstructuredData';
 import type { UnstructuredDocument } from '../data/unstructuredData';
@@ -10,6 +9,9 @@ import { initialWorkflows } from '../data/workflows';
 import { schemaMetadata } from '../data/schemaMetadata';
 // FIX: Added WidgetConfig to the import list to resolve the type error.
 import type { Workflow, McpServer, Dashboard as DashboardType, User, AuditLog, PiiFinding, DataAccessPolicy, PredictionModel, WorkflowVersion, ExecutionLog, WidgetConfig } from '../types';
+
+// Tell TypeScript that initSqlJs is a global variable from the script tag in index.html
+declare const initSqlJs: any;
 
 let db: Database | null = null;
 let idbPersistenceEnabled = true;
@@ -322,12 +324,11 @@ function populateNewDatabase(db: Database) {
 }
 
 export async function initializeDatabase(dbBytes?: Uint8Array): Promise<string> {
-  // Directly fetch the wasm binary to bypass any module loading issues.
-  // Using a reliable CDN for a direct, path to the dist file.
-  const wasmUrl = 'https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.wasm';
-  const wasmBinary = await(await fetch(wasmUrl)).arrayBuffer();
-  
-  const SQL = await initSqlJs({ wasmBinary });
+  // sql-wasm.js is loaded via a <script> tag in index.html.
+  // We need to tell it where to find the wasm file.
+  const SQL = await initSqlJs({
+    locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/${file}`
+  });
   
   idbPersistenceEnabled = await canUseIndexedDB();
 
