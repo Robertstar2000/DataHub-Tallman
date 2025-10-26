@@ -1,6 +1,5 @@
 
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { executeQuery, getTableSchemas, searchSchemaWithAi } from '../services/api';
 import { schemaMetadata } from '../data/schemaMetadata';
 
@@ -56,6 +55,22 @@ const ResultsHeader: React.FC<{ tables: string[]; schemas: Record<string, { colu
     );
 };
 
+const getCategoryForTable = (tableName: string): string => {
+    if (tableName.startsWith('p21_')) return 'P21 ERP';
+    if (tableName.startsWith('por_')) return 'Point of Rental';
+    if (tableName.startsWith('qc_')) return 'Quality Control';
+    if (tableName.startsWith('mfg_')) return 'Manufacturing';
+    if (tableName.startsWith('cascade_')) return 'Cascade Inventory';
+    if (tableName.startsWith('wordpress_')) return 'WordPress CMS';
+    if (tableName.startsWith('teams_')) return 'Microsoft Teams';
+    if (tableName.startsWith('gdrive_')) return 'Google Drive';
+    if (tableName.startsWith('stackoverflow_')) return 'Stack Overflow';
+    if (tableName.startsWith('daily_sales_metrics')) return 'Reporting';
+    if (tableName.startsWith('prediction_')) return 'Predictive Analytics';
+    return 'General';
+};
+
+
 const StructuredDataExplorer: React.FC = () => {
     const [query, setQuery] = useState('SELECT * FROM p21_customers;');
     const [executedQuery, setExecutedQuery] = useState<string | null>(null);
@@ -71,6 +86,11 @@ const StructuredDataExplorer: React.FC = () => {
     const [isSearching, setIsSearching] = useState(false);
     const [searchError, setSearchError] = useState<string | null>(null);
     const [searchResults, setSearchResults] = useState<{ tables: string[], columns: string[] }>({ tables: [], columns: [] });
+    
+    // State for schema filtering
+    const [sources, setSources] = useState<string[]>([]);
+    const [selectedSource, setSelectedSource] = useState('All');
+    const [tableSearchTerm, setTableSearchTerm] = useState('');
 
     const loadInitialData = async () => {
         setIsSchemaLoading(true);
@@ -85,12 +105,14 @@ const StructuredDataExplorer: React.FC = () => {
             }
 
             const schemas = await getTableSchemas();
-            // We only need the columns for this component's purpose
             const simplifiedSchemas = Object.entries(schemas).reduce((acc, [name, { columns }]) => {
                 acc[name] = { columns };
                 return acc;
             }, {} as Record<string, { columns: string }>);
             setTableSchemas(simplifiedSchemas);
+            
+            const uniqueSources = ['All', ...new Set(Object.keys(simplifiedSchemas).map(getCategoryForTable))].sort((a,b) => a === 'All' ? -1 : b === 'All' ? 1 : a.localeCompare(b));
+            setSources(uniqueSources);
 
         } catch (e) {
             console.error("Failed to load initial data", e);
@@ -102,6 +124,14 @@ const StructuredDataExplorer: React.FC = () => {
     useEffect(() => {
         loadInitialData();
     }, []);
+
+    const filteredSchemaEntries = useMemo(() => {
+        return Object.entries(tableSchemas).filter(([tableName]) => {
+            const sourceMatch = selectedSource === 'All' || getCategoryForTable(tableName) === selectedSource;
+            const searchMatch = tableName.toLowerCase().includes(tableSearchTerm.toLowerCase());
+            return sourceMatch && searchMatch;
+        });
+    }, [tableSchemas, selectedSource, tableSearchTerm]);
 
     const updateHistory = (newQuery: string) => {
         const updatedHistory = [newQuery, ...history.filter(h => h !== newQuery)].slice(0, 10);
@@ -188,14 +218,14 @@ const StructuredDataExplorer: React.FC = () => {
                 </div>
                  <div className="flex-grow flex flex-col min-h-0 space-y-4">
                     <div className="flex-grow flex flex-col min-h-0">
-                        <h3 className="text-lg font-semibold text-white mb-2">AI Schema Search</h3>
-                        <div className="flex gap-2 mb-2">
+                        <h3 className="text-lg font-semibold text-white mb-2">Schema Browser</h3>
+                         <div className="flex gap-2 mb-2">
                              <input
                                 type="text"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                                placeholder="e.g., 'customer contact info'"
+                                placeholder="AI Search: 'customer contact info'"
                                 className="flex-grow bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-slate-400 focus:ring-2 focus:ring-cyan-500 focus:outline-none"
                             />
                             {searchQuery && <button onClick={clearSearch} className="text-slate-400 hover:text-white">&times;</button>}
@@ -205,8 +235,21 @@ const StructuredDataExplorer: React.FC = () => {
                         </div>
                         {searchError && <p className="text-xs text-red-400">{searchError}</p>}
                         
+                        <div className="flex gap-2 mb-2">
+                            <select value={selectedSource} onChange={e => setSelectedSource(e.target.value)} className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-2 py-1 text-white text-sm focus:ring-2 focus:ring-cyan-500 focus:outline-none">
+                                {sources.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                            <input
+                                type="text"
+                                value={tableSearchTerm}
+                                onChange={e => setTableSearchTerm(e.target.value)}
+                                placeholder="Filter by table name..."
+                                className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-2 py-1 text-white text-sm placeholder-slate-400 focus:ring-2 focus:ring-cyan-500 focus:outline-none"
+                            />
+                        </div>
+                        
                         <div className="bg-slate-900/50 border border-slate-700/50 rounded-lg p-2 overflow-y-auto flex-1">
-                            {isSchemaLoading ? <SchemaSidebarSkeleton /> : Object.entries(tableSchemas).map(([tableName, { columns }]) => {
+                            {isSchemaLoading ? <SchemaSidebarSkeleton /> : filteredSchemaEntries.map(([tableName, { columns }]) => {
                                 const tableMeta = schemaMetadata[tableName];
                                 const isTableHighlighted = searchResults.tables.includes(tableName);
                                 const hasVector = tableMeta?.inVectorStore;
@@ -228,8 +271,7 @@ const StructuredDataExplorer: React.FC = () => {
                                         <div className="pl-4 border-l-2 border-slate-700 ml-2 mt-1">
                                             {(typeof columns === 'string' ? columns : '').split(', ').map(colStr => {
                                                 const [colName, colType] = colStr.replace(')', '').split(' (');
-                                                // FIX: Used optional chaining (?.) for safer access to tableMeta.columns, preventing a potential crash if tableMeta is undefined for a given table.
-                                                const colMeta = tableMeta?.columns?.[colName];
+                                                const colMeta = (tableMeta && 'columns' in tableMeta) ? tableMeta.columns[colName] : undefined;
                                                 const isColHighlighted = searchResults.columns.includes(`${tableName}.${colName}`);
                                                 return (
                                                     <div key={colName} className={`py-1 px-2 rounded ${isColHighlighted ? 'bg-cyan-500/20' : ''}`}>

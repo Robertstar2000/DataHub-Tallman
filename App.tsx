@@ -16,14 +16,19 @@ import { initializeDatabase } from './services/api';
 import HelpModal from './components/HelpModal';
 import { ErrorProvider } from './contexts/ErrorContext';
 import ErrorHeader from './components/ErrorHeader';
+import PredictiveAnalytics from './components/PredictiveAnalytics';
+import DataGovernance from './components/DataGovernance';
+import AuditLog from './components/AuditLog';
+import DocumentModal from './components/DocumentModal';
 
-export type View = 'dashboard' | 'architecture' | 'explorer' | 'ai-analyst' | 'schema-explorer' | 'dashboard-builder' | 'workflow-builder' | 'dl-controls' | 'db-maintenance' | 'mcp-protocol' | 'io-management';
+export type View = 'dashboard' | 'architecture' | 'explorer' | 'ai-analyst' | 'schema-explorer' | 'dashboard-builder' | 'workflow-builder' | 'dl-controls' | 'db-maintenance' | 'mcp-protocol' | 'io-management' | 'predictive-analytics' | 'data-governance' | 'audit-log';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [isDbLoading, setIsDbLoading] = useState(true);
   const [dbError, setDbError] = useState<string | null>(null);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isDocModalOpen, setIsDocModalOpen] = useState(false);
 
   useEffect(() => {
     const init = async () => {
@@ -63,6 +68,12 @@ const App: React.FC = () => {
         return <McpProtocol />;
       case 'io-management':
         return <IoManagement />;
+      case 'predictive-analytics':
+        return <PredictiveAnalytics />;
+      case 'data-governance':
+        return <DataGovernance />;
+      case 'audit-log':
+        return <AuditLog />;
       default:
         return <Dashboard setCurrentView={setCurrentView} />;
     }
@@ -98,7 +109,7 @@ const App: React.FC = () => {
       <div className="flex flex-col h-screen bg-slate-900 text-slate-200">
         <ErrorHeader />
         <div className="flex flex-1 min-h-0">
-          <Sidebar currentView={currentView} setCurrentView={setCurrentView} />
+          <Sidebar currentView={currentView} setCurrentView={setCurrentView} onOpenDocModal={() => setIsDocModalOpen(true)} />
           <main className="flex-1 p-8 overflow-y-auto">
             {renderContent()}
           </main>
@@ -115,6 +126,7 @@ const App: React.FC = () => {
         </button>
 
         <HelpModal show={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
+        <DocumentModal show={isDocModalOpen} onClose={() => setIsDocModalOpen(false)} />
       </div>
     </ErrorProvider>
   );

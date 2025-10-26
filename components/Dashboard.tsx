@@ -12,6 +12,14 @@ interface StatusData {
   vectorStats: any; 
 }
 
+interface Anomaly {
+    id: number;
+    metric: string;
+    change: string;
+    severity: 'Warning' | 'Critical';
+    timestamp: string;
+}
+
 interface DashboardProps {
   setCurrentView: (view: View) => void;
 }
@@ -55,6 +63,28 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
   const [statusData, setStatusData] = useState<StatusData | null>(null);
   const [loadedMcps, setLoadedMcps] = useState<McpServer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
+
+  const mockAnomalies: Omit<Anomaly, 'id' | 'timestamp'>[] = [
+      { metric: 'P21 Order Ingestion', change: '-45% vs. 7-day avg', severity: 'Critical' },
+      { metric: 'API Latency (HubSpot)', change: '+120% vs. hourly avg', severity: 'Warning' },
+      { metric: 'New Customer Signups', change: '+300% last hour', severity: 'Warning' },
+      { metric: 'DB CPU Utilization', change: '89% sustained', severity: 'Critical' },
+  ];
+
+  useEffect(() => {
+    const anomalyInterval = setInterval(() => {
+        const newAnomalyData = mockAnomalies[Math.floor(Math.random() * mockAnomalies.length)];
+        const newAnomaly: Anomaly = {
+            ...newAnomalyData,
+            id: Date.now(),
+            timestamp: new Date().toLocaleTimeString(),
+        };
+        setAnomalies(prev => [newAnomaly, ...prev].slice(0, 5));
+    }, 8000); // Add a new anomaly every 8 seconds
+
+    return () => clearInterval(anomalyInterval);
+  }, []);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -149,8 +179,8 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card onClick={() => setCurrentView('workflow-builder')} className="cursor-pointer transition-all duration-200 hover:border-cyan-500/50 hover:shadow-lg hover:shadow-cyan-500/10 group">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card onClick={() => setCurrentView('workflow-builder')} className="lg:col-span-1 cursor-pointer transition-all duration-200 hover:border-cyan-500/50 hover:shadow-lg hover:shadow-cyan-500/10 group">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-xl font-semibold text-white">Workflow Status</h3>
             <LinkArrow />
@@ -167,7 +197,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
             ))}
           </div>
         </Card>
-        <Card onClick={() => setCurrentView('db-maintenance')} className="cursor-pointer transition-all duration-200 hover:border-cyan-500/50 hover:shadow-lg hover:shadow-cyan-500/10 group">
+        <Card onClick={() => setCurrentView('db-maintenance')} className="lg:col-span-1 cursor-pointer transition-all duration-200 hover:border-cyan-500/50 hover:shadow-lg hover:shadow-cyan-500/10 group">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-xl font-semibold text-white">Data Store Health</h3>
             <LinkArrow />
@@ -185,6 +215,23 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
                     <span className="text-slate-400">Vector Indexed Documents</span>
                     <span className="font-mono text-xl text-white">{statusData.vectorStats.documentCount}</span>
                 </div>
+            </div>
+        </Card>
+        <Card className="lg:col-span-1 transition-all duration-200 hover:border-cyan-500/50 hover:shadow-lg hover:shadow-cyan-500/10 group">
+            <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-semibold text-white">AI Anomaly Detection</h3>
+                <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse"></div>
+            </div>
+            <div className="space-y-2">
+                {anomalies.map(anomaly => (
+                    <div key={anomaly.id} className={`p-2 rounded-md border-l-4 ${anomaly.severity === 'Critical' ? 'bg-red-500/10 border-red-500' : 'bg-yellow-500/10 border-yellow-500'}`}>
+                        <p className={`font-semibold ${anomaly.severity === 'Critical' ? 'text-red-300' : 'text-yellow-300'}`}>{anomaly.metric}</p>
+                        <div className="flex justify-between text-xs">
+                            <span className="text-slate-300">{anomaly.change}</span>
+                            <span className="text-slate-500">{anomaly.timestamp}</span>
+                        </div>
+                    </div>
+                ))}
             </div>
         </Card>
       </div>

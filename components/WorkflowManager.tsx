@@ -1,4 +1,5 @@
 
+
 import React, { useState, useRef, useEffect, useContext, useMemo } from 'react';
 import Card from './Card';
 import type { Workflow, WorkflowStatus, McpServer } from '../types';
@@ -15,13 +16,50 @@ const STATUSES: WorkflowStatus[] = ['Live', 'Test', 'Hold'];
 const GENERIC_SOURCES = ["Kafka Topic: new_orders", "Data Lake: p21_sales_orders", "S3 Bucket: raw-logs"];
 const GENERIC_DESTINATIONS = ["Data Lake: p21_sales_orders", "Data Lake: daily_sales_metrics", "Redshift Table: dim_products"];
 
+const MultiSelectCheckboxes: React.FC<{
+    label: string;
+    options: { id: string; name: string }[];
+    selectedIds: string[];
+    onChange: (selectedIds: string[]) => void;
+}> = ({ label, options, selectedIds, onChange }) => {
+    const handleToggle = (id: string) => {
+        const newSelected = selectedIds.includes(id)
+            ? selectedIds.filter(selectedId => selectedId !== id)
+            : [...selectedIds, id];
+        onChange(newSelected);
+    };
+
+    return (
+        <div>
+            <label className="block text-slate-400 mb-2">{label}</label>
+            <div className="max-h-32 overflow-y-auto bg-slate-900/50 border border-slate-600 rounded-lg p-2 space-y-1">
+                {options.length > 0 ? options.map(option => (
+                    <div key={option.id} className="flex items-center p-1 rounded hover:bg-slate-700/50">
+                        <input
+                            type="checkbox"
+                            id={`cb-${label}-${option.id}`}
+                            checked={selectedIds.includes(option.id)}
+                            onChange={() => handleToggle(option.id)}
+                            className="w-4 h-4 text-cyan-600 bg-slate-700 border-slate-500 rounded focus:ring-cyan-500"
+                        />
+                        <label htmlFor={`cb-${label}-${option.id}`} className="ml-2 text-sm text-slate-300">
+                            {option.name}
+                        </label>
+                    </div>
+                )) : <p className="text-sm text-slate-500 text-center p-2">No other workflows available.</p>}
+            </div>
+        </div>
+    );
+};
+
 const WorkflowEditor: React.FC<{ 
     workflow: Partial<Workflow>, 
+    allWorkflows: Workflow[],
     sourceOptions: string[],
     destinationOptions: string[],
     onSave: (wf: Workflow) => void, 
     onCancel: () => void 
-}> = ({ workflow, sourceOptions, destinationOptions, onSave, onCancel }) => {
+}> = ({ workflow, allWorkflows, sourceOptions, destinationOptions, onSave, onCancel }) => {
     const [editedWorkflow, setEditedWorkflow] = useState<Partial<Workflow>>(workflow);
     
     const handleSubmit = (e: React.FormEvent) => {
@@ -53,6 +91,10 @@ const WorkflowEditor: React.FC<{
         const newSources = (editedWorkflow.sources || []).filter((_, i) => i !== index);
         setEditedWorkflow(prev => ({ ...prev, sources: newSources }));
     };
+
+    const workflowOptions = allWorkflows
+        .filter(wf => wf.id !== editedWorkflow.id)
+        .map(wf => ({ id: wf.id, name: wf.name }));
 
     return (
         <Card>
@@ -151,6 +193,24 @@ const WorkflowEditor: React.FC<{
                     </div>
                 </div>
 
+                <div className="border-t border-slate-700/50 pt-6 space-y-4">
+                    <h3 className="text-lg font-semibold text-cyan-400">Dependencies & Triggers</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <MultiSelectCheckboxes
+                            label="Runs After (Dependencies)"
+                            options={workflowOptions}
+                            selectedIds={editedWorkflow.dependencies || []}
+                            onChange={(deps) => setEditedWorkflow(prev => ({ ...prev, dependencies: deps }))}
+                        />
+                         <MultiSelectCheckboxes
+                            label="On Success, Triggers"
+                            options={workflowOptions}
+                            selectedIds={editedWorkflow.triggersOnSuccess || []}
+                            onChange={(triggers) => setEditedWorkflow(prev => ({ ...prev, triggersOnSuccess: triggers }))}
+                        />
+                    </div>
+                </div>
+
                 <div className="flex justify-end gap-4 pt-4">
                     <button type="button" onClick={onCancel} className="bg-slate-600 text-white font-semibold px-6 py-2 rounded-lg hover:bg-slate-500 transition-colors">
                         Cancel
@@ -190,8 +250,9 @@ const ExecutionLogModal: React.FC<{ workflow: Workflow, onClose: () => void, log
     );
 };
 
-const KanbanCard: React.FC<{ workflow: Workflow; onDragStart: (workflow: Workflow) => void, onEdit: (workflow: Workflow) => void, onRun: (workflow: Workflow) => void, isRunning: boolean, isDisabled: boolean }> = ({ workflow, onDragStart, onEdit, onRun, isRunning, isDisabled }) => {
+const KanbanCard: React.FC<{ workflow: Workflow; allWorkflows: Workflow[]; onDragStart: (workflow: Workflow) => void, onEdit: (workflow: Workflow) => void, onRun: (workflow: Workflow) => void, isRunning: boolean, isDisabled: boolean }> = ({ workflow, allWorkflows, onDragStart, onEdit, onRun, isRunning, isDisabled }) => {
   const statusStyle = statusColors[workflow.status];
+  const getWorkflowName = (id: string) => allWorkflows.find(w => w.id === id)?.name || id;
   
   return (
     <Card 
@@ -203,9 +264,19 @@ const KanbanCard: React.FC<{ workflow: Workflow; onDragStart: (workflow: Workflo
         <h4 className="font-bold text-white mb-2">{workflow.name}</h4>
       </div>
       <div className="text-xs text-slate-400 space-y-2">
-        <p><span className="font-semibold">Source(s):</span> {workflow.sources[0]}{workflow.sources.length > 1 && ` (+${workflow.sources.length - 1})`}</p>
+        <p><span className="font-semibold">Source(s):</span> {workflow.sources?.[0]}{workflow.sources && workflow.sources.length > 1 && ` (+${workflow.sources.length - 1})`}</p>
         <p><span className="font-semibold">Dest:</span> {workflow.destination}</p>
       </div>
+      {(workflow.dependencies?.length || 0) > 0 || (workflow.triggersOnSuccess?.length || 0) > 0 ? (
+        <div className="text-xs text-slate-400 space-y-1 mt-2 pt-2 border-t border-slate-700/50">
+           {workflow.dependencies && workflow.dependencies.length > 0 && (
+            <p><span className="font-semibold">Depends on:</span> {getWorkflowName(workflow.dependencies[0])}{workflow.dependencies.length > 1 && ` (+${workflow.dependencies.length - 1})`}</p>
+          )}
+          {workflow.triggersOnSuccess && workflow.triggersOnSuccess.length > 0 && (
+             <p><span className="font-semibold">Triggers:</span> {getWorkflowName(workflow.triggersOnSuccess[0])}{workflow.triggersOnSuccess.length > 1 && ` (+${workflow.triggersOnSuccess.length - 1})`}</p>
+          )}
+        </div>
+      ) : null}
       <div className="flex justify-between items-center mt-3 pt-3 border-t border-slate-700/50">
          <div className={`flex items-center text-xs font-semibold px-2 py-1 rounded-full ${statusStyle.bg} ${statusStyle.text}`}>
           <span className={`w-2 h-2 rounded-full mr-2 ${statusStyle.dot}`}></span>
@@ -249,9 +320,9 @@ const WorkflowManager: React.FC = () => {
     useEffect(() => {
         clearErrorsBySource(ERROR_SOURCE);
         workflows.forEach(wf => {
-            const allEndpoints = [...wf.sources, wf.destination];
+            const allEndpoints = [...(wf.sources || []), wf.destination];
             for (const endpoint of allEndpoints) {
-                if (endpoint.startsWith('MCP: ') && !mcpNames.includes(endpoint.substring(5))) {
+                if (endpoint && endpoint.startsWith('MCP: ') && !mcpNames.includes(endpoint.substring(5))) {
                      addError(`Workflow "${wf.name}" is disabled: Required MCP "${endpoint.substring(5)}" is not loaded.`, ERROR_SOURCE);
                 }
             }
@@ -260,9 +331,9 @@ const WorkflowManager: React.FC = () => {
     }, [workflows, mcpNames]);
     
     const isWorkflowDisabled = (workflow: Workflow): boolean => {
-        const allEndpoints = [...workflow.sources, workflow.destination];
+        const allEndpoints = [...(workflow.sources || []), workflow.destination];
         for (const endpoint of allEndpoints) {
-            if (endpoint.startsWith('MCP: ') && !mcpNames.includes(endpoint.substring(5))) {
+            if (endpoint && endpoint.startsWith('MCP: ') && !mcpNames.includes(endpoint.substring(5))) {
                 return true;
             }
         }
@@ -273,7 +344,7 @@ const WorkflowManager: React.FC = () => {
     const destinationOptions = useMemo(() => [...GENERIC_DESTINATIONS, ...mcpNames.map(name => `MCP: ${name}`)], [mcpNames]);
 
     const handleCreate = () => {
-        setActiveWorkflow({ name: '', status: 'Test', sources: [sourceOptions[0]], transformer: 'Custom JavaScript', destination: destinationOptions[0], trigger: 'On demand', repartition: 8});
+        setActiveWorkflow({ name: '', status: 'Test', sources: [sourceOptions[0]], transformer: 'Custom JavaScript', destination: destinationOptions[0], trigger: 'On demand', repartition: 8, dependencies: [], triggersOnSuccess: []});
         setMode('create');
     };
 
@@ -291,15 +362,17 @@ const WorkflowManager: React.FC = () => {
 
     const handleSave = async (workflowToSave: Workflow) => {
         let updatedWorkflows;
-        if (workflowToSave.id) {
-            updatedWorkflows = workflows.map(wf => wf.id === workflowToSave.id ? workflowToSave : wf);
-        } else {
+        const isNew = !workflowToSave.id;
+        if (isNew) {
             const newWorkflow = { ...workflowToSave, id: `wf-${Date.now()}`, lastExecuted: 'Never' };
             workflowToSave = newWorkflow; // update to save the one with ID
             updatedWorkflows = [...workflows, newWorkflow];
+        } else {
+            updatedWorkflows = workflows.map(wf => wf.id === workflowToSave.id ? workflowToSave : wf);
         }
         setWorkflows(updatedWorkflows);
-        await saveWorkflow(workflowToSave);
+        // FIX: The saveWorkflow function requires a second argument 'asNewVersion'
+        await saveWorkflow(workflowToSave, isNew);
 
         setMode(mode === 'kanban' || mode === 'list' ? mode : 'list');
         setActiveWorkflow(null);
@@ -326,10 +399,9 @@ const WorkflowManager: React.FC = () => {
         const success = await executeWorkflow(workflowToRun, logCallback);
 
         if (success) {
-            const updatedTime = new Date().toLocaleString('en-CA', { hour12: false }).replace(',', '');
-            const updatedWorkflow = { ...workflowToRun, lastExecuted: updatedTime };
-            await saveWorkflow(updatedWorkflow);
-            setWorkflows(prev => prev.map(wf => wf.id === workflowToRun.id ? updatedWorkflow : wf));
+            // Refetch workflows to get all updates from the triggered chain
+            const finalWorkflows = await getWorkflows();
+            setWorkflows(finalWorkflows);
         }
         setIsPipelineRunning(false);
     };
@@ -340,7 +412,8 @@ const WorkflowManager: React.FC = () => {
         if (!draggedItem) return;
         const updatedWorkflow = { ...draggedItem, status: targetStatus };
         setWorkflows(workflows.map(p => p.id === draggedItem.id ? updatedWorkflow : p));
-        await saveWorkflow(updatedWorkflow);
+        // FIX: The saveWorkflow function requires a second argument 'asNewVersion'
+        await saveWorkflow(updatedWorkflow, false);
         setDraggedItem(null);
         setDragOverStatus(null);
     };
@@ -351,10 +424,13 @@ const WorkflowManager: React.FC = () => {
     
     const handleDragLeave = () => setDragOverStatus(null);
     
+    const getWorkflowName = (id: string) => workflows.find(w => w.id === id)?.name || id;
+
     const renderContent = () => {
         if (mode === 'edit' || mode === 'create') {
             return <WorkflowEditor 
                 workflow={activeWorkflow!} 
+                allWorkflows={workflows}
                 sourceOptions={sourceOptions}
                 destinationOptions={destinationOptions}
                 onSave={handleSave} 
@@ -376,7 +452,7 @@ const WorkflowManager: React.FC = () => {
                         >
                             <h3 className={`text-lg font-bold text-white mb-4 pb-2 border-b-2 ${statusColors[status].border}`}>{status} ({workflows.filter(p => p.status === status).length})</h3>
                             <div className="space-y-4 overflow-y-auto h-[calc(100vh-300px)] pr-2">
-                               {workflows.filter(p => p.status === status).map(p => <KanbanCard key={p.id} workflow={p} onDragStart={handleDragStart} onEdit={handleEdit} onRun={handleRunWorkflow} isRunning={isPipelineRunning} isDisabled={isWorkflowDisabled(p)} />)}
+                               {workflows.filter(p => p.status === status).map(p => <KanbanCard key={p.id} workflow={p} allWorkflows={workflows} onDragStart={handleDragStart} onEdit={handleEdit} onRun={handleRunWorkflow} isRunning={isPipelineRunning} isDisabled={isWorkflowDisabled(p)} />)}
                             </div>
                         </div>
                     ))}
@@ -398,12 +474,22 @@ const WorkflowManager: React.FC = () => {
                                     </span>
                                     <p className="text-xs text-slate-400 mt-2">Last run: {wf.lastExecuted}</p>
                                 </div>
-                                <div className="md:col-span-2">
-                                        <div className="flex flex-col space-y-2 text-sm">
-                                        <div className="flex items-start"><span className="font-semibold text-slate-400 w-24 flex-shrink-0">Source(s):</span> <div className="flex flex-col">{wf.sources.map((s, i) => <span key={i} className="font-mono text-slate-300">{s}</span>)}</div></div>
-                                        <div className="flex items-center"><span className="font-semibold text-slate-400 w-24">Transformer:</span> <span className="font-mono text-slate-300">{wf.transformer}</span></div>
-                                        <div className="flex items-center"><span className="font-semibold text-slate-400 w-24">Destination:</span> <span className="font-mono text-slate-300">{wf.destination}</span></div>
+                                <div className="md:col-span-2 space-y-3">
+                                    <div className="flex flex-col space-y-2 text-sm">
+                                    <div className="flex items-start"><span className="font-semibold text-slate-400 w-24 flex-shrink-0">Source(s):</span> <div className="flex flex-col">{wf.sources?.map((s, i) => <span key={i} className="font-mono text-slate-300">{s}</span>)}</div></div>
+                                    <div className="flex items-center"><span className="font-semibold text-slate-400 w-24">Transformer:</span> <span className="font-mono text-slate-300">{wf.transformer}</span></div>
+                                    <div className="flex items-center"><span className="font-semibold text-slate-400 w-24">Destination:</span> <span className="font-mono text-slate-300">{wf.destination}</span></div>
+                                    </div>
+                                    {(wf.dependencies?.length || 0) > 0 || (wf.triggersOnSuccess?.length || 0) > 0 ? (
+                                        <div className="text-xs text-slate-400 space-y-1 pt-2 border-t border-slate-700/50">
+                                        {wf.dependencies && wf.dependencies.length > 0 && (
+                                            <div className="flex items-start"><span className="font-semibold text-slate-300 w-24 flex-shrink-0">Depends on:</span> <div className="flex flex-col">{wf.dependencies.map(id => <span key={id}>{getWorkflowName(id)}</span>)}</div></div>
+                                        )}
+                                        {wf.triggersOnSuccess && wf.triggersOnSuccess.length > 0 && (
+                                            <div className="flex items-start"><span className="font-semibold text-slate-300 w-24 flex-shrink-0">Triggers:</span> <div className="flex flex-col">{wf.triggersOnSuccess.map(id => <span key={id}>{getWorkflowName(id)}</span>)}</div></div>
+                                        )}
                                         </div>
+                                    ) : null}
                                 </div>
                                 <div className="md:col-span-1 flex md:flex-col md:items-end gap-2">
                                     <button onClick={() => handleRunWorkflow(wf)} disabled={isPipelineRunning || isDisabled} className="w-full md:w-auto px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-sm rounded-lg font-semibold disabled:bg-slate-600 disabled:cursor-not-allowed">

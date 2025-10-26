@@ -13,6 +13,13 @@ import {
 type DbStats = Awaited<ReturnType<typeof getDbStatistics>> | null;
 type VectorStats = Awaited<ReturnType<typeof getVectorStoreStats>> | null;
 
+const aiRecommendations = [
+    { id: 1, type: 'Quality', text: "Column `contact_email` in `p21_customers` has 2 records with invalid email formats.", severity: 'warning' },
+    { id: 2, type: 'Optimization', text: "Table `p21_sales_order_lines` is frequently joined on `item_id`. Consider adding an index.", severity: 'info' },
+    { id: 3, type: 'Quality', text: "Found 3 potential duplicate customer records based on address similarity.", severity: 'warning' },
+    { id: 4, type: 'Optimization', text: "Table `teams_messages` is growing rapidly. Consider archiving records older than 180 days.", severity: 'info' },
+];
+
 const DbMaintenance: React.FC = () => {
   const [dbStats, setDbStats] = useState<DbStats>(null);
   const [vectorStats, setVectorStats] = useState<VectorStats>(null);
@@ -165,6 +172,20 @@ const DbMaintenance: React.FC = () => {
                   <StatItem label="Vector Dimension" value={vectorStats?.vectorDimension ?? '...'} />
               </div>
               <button onClick={handleRebuildIndex} disabled={loading.rebuild} className="btn-primary w-full">{loading.rebuild ? 'Rebuilding...' : 'Rebuild Index'}</button>
+          </Card>
+           <Card>
+              <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m1.5-4.5V21m6-18v1.5m3.75-1.5v1.5m3.75 1.5v1.5m0 3.75v1.5m0 3.75v1.5m0 3.75v1.5M12 3v1.5m0 3.75v1.5m0 3.75v1.5m0 3.75v1.5" /></svg>
+                AI Data Steward
+              </h2>
+               <div className="space-y-2">
+                {aiRecommendations.map(rec => (
+                    <div key={rec.id} className={`p-2 rounded-md border-l-4 ${rec.severity === 'warning' ? 'bg-yellow-500/10 border-yellow-500' : 'bg-blue-500/10 border-blue-500'}`}>
+                        <p className={`font-semibold text-sm ${rec.severity === 'warning' ? 'text-yellow-300' : 'text-blue-300'}`}>{rec.type}</p>
+                        <p className="text-xs text-slate-300">{rec.text}</p>
+                    </div>
+                ))}
+            </div>
           </Card>
         </div>
 

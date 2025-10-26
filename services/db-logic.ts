@@ -8,7 +8,8 @@ import type { UnstructuredDocument } from '../data/unstructuredData';
 import { initialCustomServers, initialMcpServers, indexedDocumentCollections, externalApiConnectors } from '../data/mcpServers';
 import { initialWorkflows } from '../data/workflows';
 import { schemaMetadata } from '../data/schemaMetadata';
-import type { Workflow, McpServer, Dashboard as DashboardType, WidgetConfig, User } from '../types';
+// FIX: Added WidgetConfig to the import list to resolve the type error.
+import type { Workflow, McpServer, Dashboard as DashboardType, User, AuditLog, PiiFinding, DataAccessPolicy, PredictionModel, WorkflowVersion, ExecutionLog, WidgetConfig } from '../types';
 
 let db: Database | null = null;
 let idbPersistenceEnabled = true;
@@ -132,7 +133,12 @@ export function rebuildVectorStore() {
   Object.entries(schemaMetadata).forEach(([tableName, meta]) => {
     if (meta.inVectorStore) {
         try {
-            const { data } = executeQuery(`SELECT * FROM ${tableName}`);
+            const result = executeQuery(`SELECT * FROM ${tableName}`);
+            if ('error' in result) {
+                console.error(`Failed to get data from ${tableName} for vector store`, result.error);
+                return;
+            }
+            const { data } = result;
             data.forEach((row: any) => {
                 const content = Object.keys(row).filter(key => typeof row[key] === 'string' && key.toLowerCase() !== 'id').map(key => `${key}: ${row[key]}`).join('\n');
                 const name = row.name || row.title || row.item_description || `${tableName} Row`;
@@ -160,7 +166,8 @@ function populateNewDatabase(db: Database) {
         'teams_users', 'teams_channels', 'teams_messages', 'gdrive_files',
         'stackoverflow_questions', 'stackoverflow_answers',
         'mcp_servers', 'workflows', 'dashboards', 'dashboard_widgets', 'dl_users',
-        'data_lake_table_sources'
+        'data_lake_table_sources',
+        'audit_logs', 'data_access_policies', 'prediction_models', 'workflow_versions', 'execution_logs'
     ];
     tablesToDrop.forEach(table => db.run(`DROP TABLE IF EXISTS ${table};`));
 
@@ -197,10 +204,15 @@ function populateNewDatabase(db: Database) {
     db.run(`CREATE TABLE stackoverflow_questions ( question_id INTEGER PRIMARY KEY, title TEXT, body TEXT, author_email TEXT, creation_date TEXT, tags TEXT );`);
     db.run(`CREATE TABLE stackoverflow_answers ( answer_id INTEGER PRIMARY KEY, question_id INTEGER, body TEXT, author_email TEXT, is_accepted INTEGER, creation_date TEXT );`);
     db.run(`CREATE TABLE mcp_servers ( id TEXT PRIMARY KEY, name TEXT NOT NULL, url TEXT, type TEXT, description TEXT, is_loaded INTEGER DEFAULT 0 );`);
-    db.run(`CREATE TABLE workflows ( id TEXT PRIMARY KEY, name TEXT NOT NULL, lastExecuted TEXT, status TEXT, sources TEXT, transformer TEXT, destination TEXT, repartition INTEGER, trigger TEXT, transformerCode TEXT );`);
+    db.run(`CREATE TABLE workflows ( id TEXT PRIMARY KEY, name TEXT NOT NULL, lastExecuted TEXT, status TEXT, sources TEXT, transformer TEXT, destination TEXT, repartition INTEGER, trigger TEXT, transformerCode TEXT, dependencies TEXT, triggersOnSuccess TEXT, nodes TEXT, edges TEXT, currentVersion INTEGER );`);
     db.run(`CREATE TABLE dashboards ( id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT );`);
     db.run(`CREATE TABLE dashboard_widgets ( id TEXT PRIMARY KEY, dashboard_id TEXT, title TEXT, type TEXT, colSpan INTEGER, sqlQuery TEXT );`);
     db.run(`CREATE TABLE dl_users ( id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE, role TEXT );`);
+    db.run(`CREATE TABLE audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, user TEXT, action TEXT, details TEXT);`);
+    db.run(`CREATE TABLE data_access_policies (id TEXT PRIMARY KEY, role TEXT, "table" TEXT, accessLevel TEXT, columnPermissions TEXT, rowLevelSecurity TEXT);`);
+    db.run(`CREATE TABLE prediction_models (id TEXT PRIMARY KEY, name TEXT, sourceTable TEXT, targetColumn TEXT, status TEXT, createdAt TEXT, accuracy REAL, resultTable TEXT);`);
+    db.run(`CREATE TABLE workflow_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, workflow_id TEXT, version INTEGER, createdAt TEXT, nodes TEXT, edges TEXT);`);
+    db.run(`CREATE TABLE execution_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, workflow_id TEXT, version INTEGER, startedAt TEXT, finishedAt TEXT, status TEXT, logs TEXT, rowsProcessed INTEGER);`);
 
     // --- MOCK DATA INSERTION & SOURCE CATALOGING ---
     const p21Mcp = 'Epicore P21';
@@ -282,7 +294,25 @@ function populateNewDatabase(db: Database) {
       db.run('INSERT INTO mcp_servers (id, name, url, type, description, is_loaded) VALUES (?, ?, ?, ?, ?, ?)', [s.id, s.name, s.url, s.type, s.description, s.type === 'Custom' ? 1 : 0]);
     });
     initialWorkflows.forEach(w => {
-      db.run('INSERT INTO workflows (id, name, lastExecuted, status, sources, transformer, destination, repartition, trigger, transformerCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [w.id, w.name, w.lastExecuted, w.status, w.sources.join('|||'), w.transformer, w.destination, w.repartition, w.trigger, w.transformerCode || null]);
+      db.run('INSERT INTO workflows (id, name, lastExecuted, status, sources, transformer, destination, repartition, trigger, transformerCode, dependencies, triggersOnSuccess, nodes, edges, currentVersion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', 
+      [
+        w.id, 
+        w.name, 
+        w.lastExecuted, 
+        w.status, 
+        (w.sources || []).join('|||'), 
+        w.transformer || null, 
+        w.destination || null, 
+// FIX: Provide a default null value for optional fields to prevent 'undefined' binding error.
+        w.repartition || null,
+        w.trigger || null, 
+        w.transformerCode || null, 
+        (w.dependencies || []).join('|||'), 
+        (w.triggersOnSuccess || []).join('|||'), 
+        JSON.stringify(w.nodes), 
+        JSON.stringify(w.edges), 
+        w.currentVersion
+      ]);
     });
     const initialUsers: User[] = [ { id: 1, name: 'Alice Johnson', email: 'alice@example.com', role: 'Admin' }, { id: 2, name: 'Bob Smith', email: 'bob@example.com', role: 'Analyst' }, { id: 3, name: 'Charlie Brown', email: 'charlie@example.com', role: 'Viewer' }, { id: 4, name: 'Diana Prince', email: 'diana@example.com', role: 'Analyst' }, { id: 5, name: 'Eve Adams', email: 'eve@example.com', role: 'Viewer' }, { id: 6, name: 'Frank Miller', email: 'frank@example.com', role: 'Viewer' }, ];
     initialUsers.forEach(u => { db.run('INSERT INTO dl_users (id, name, email, role) VALUES (?, ?, ?, ?)', [u.id, u.name, u.email, u.role]); });
@@ -330,7 +360,7 @@ function isModifyingQuery(query: string): boolean {
     return keywords.some(keyword => queryUpper.startsWith(keyword));
 };
 
-export function executeQuery(query: string, params: (string|number)[] = []) {
+export function executeQuery(query: string, params: (string|number|null)[] = []) {
     if (!db) throw new Error("Database not initialized");
     try {
         if (isModifyingQuery(query)) {
@@ -361,13 +391,21 @@ export function executeQuery(query: string, params: (string|number)[] = []) {
 
 export function getTableSchemas(): Record<string, { columns: string, mcpSource: string | null }> {
     if (!db) throw new Error("Database not initialized");
-    const tables = executeQuery("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';").data;
+    const tablesResult = executeQuery("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';");
+    if ('error' in tablesResult) throw new Error(tablesResult.error);
+    const tables = tablesResult.data;
+
     const schemas: Record<string, { columns: string, mcpSource: string | null }> = {};
     if (tables) {
         tables.forEach(row => {
             const tableName = row.name as string;
-            const tableInfo = executeQuery(`PRAGMA table_info(${tableName})`).data;
-            const sourceInfo = executeQuery("SELECT mcp_source FROM data_lake_table_sources WHERE table_name = ?", [tableName]).data;
+            const tableInfoResult = executeQuery(`PRAGMA table_info(${tableName})`);
+            if ('error' in tableInfoResult) return;
+            const tableInfo = tableInfoResult.data;
+
+            const sourceInfoResult = executeQuery("SELECT mcp_source FROM data_lake_table_sources WHERE table_name = ?", [tableName]);
+            if ('error' in sourceInfoResult) return;
+            const sourceInfo = sourceInfoResult.data;
 
             if (tableInfo) {
                 const columnNames = tableInfo.map((col: any) => `${col.name} (${col.type})`);
@@ -434,15 +472,31 @@ export function findSimilarDocuments(docId: string, count: number = 3): Unstruct
         .map(item => item.doc);
 };
 
+export function findSimilarDocumentsByQuery(query: string, count: number = 5): UnstructuredDocument[] {
+    // Simulate creating a vector for the query
+    let queryVector = Array.from({ length: VECTOR_DIMENSION }, () => Math.random() * 2 - 1);
+    const mag = magnitude(queryVector);
+    queryVector = queryVector.map(v => v / mag);
+
+    return vectorStore
+        .map(doc => ({ doc, similarity: cosineSimilarity(queryVector, doc.vector) }))
+        .sort((a, b) => b.similarity - a.similarity)
+        .slice(0, count)
+        .map(item => item.doc);
+}
+
 export function getDbStatistics() {
   if (!db) throw new Error("Database not initialized");
   const tableCounts: Record<string, number> = {};
-  const tables = executeQuery("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';").data;
+  const tablesResult = executeQuery("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';");
+  if ('error' in tablesResult) throw new Error(tablesResult.error);
+  const tables = tablesResult.data;
   if(tables) {
       tables.forEach((row: any) => {
           const tableName = row.name as string;
-          const countResult = executeQuery(`SELECT COUNT(*) as count FROM ${tableName}`).data;
-          tableCounts[tableName] = countResult[0].count as number;
+          const countResult = executeQuery(`SELECT COUNT(*) as count FROM ${tableName}`);
+          if ('error' in countResult) return;
+          tableCounts[tableName] = countResult.data[0].count as number;
       })
   }
   const dbSizeBytes = db.export().byteLength;
@@ -471,20 +525,52 @@ export function getVectorStoreStats() {
 };
 
 export function getDashboardStats() {
-    const { data: mcpData } = executeQuery("SELECT COUNT(*) as count FROM mcp_servers WHERE is_loaded = 1");
-    const { data: workflowData } = executeQuery("SELECT status, COUNT(*) as count FROM workflows GROUP BY status");
-    const workflowCounts = workflowData.reduce((acc, row) => { acc[row.status as string] = row.count; return acc; }, {} as Record<string, number>);
-    return { dbStats: getDbStatistics(), vectorStats: getVectorStoreStats(), mcpCount: mcpData[0]?.count || 0, workflowCounts };
+    const mcpResult = executeQuery("SELECT COUNT(*) as count FROM mcp_servers WHERE is_loaded = 1");
+    const workflowResult = executeQuery("SELECT status, COUNT(*) as count FROM workflows GROUP BY status");
+    if ('error' in mcpResult || 'error' in workflowResult) return {};
+    const workflowCounts = workflowResult.data.reduce((acc, row) => { acc[row.status as string] = row.count; return acc; }, {} as Record<string, number>);
+    return { dbStats: getDbStatistics(), vectorStats: getVectorStoreStats(), mcpCount: mcpResult.data[0]?.count || 0, workflowCounts };
 }
 
-export function getMcpServers(): McpServer[] { return executeQuery("SELECT *, is_loaded as isLoaded FROM mcp_servers").data; }
+export function getMcpServers(): McpServer[] { return executeQuery("SELECT *, is_loaded as isLoaded FROM mcp_servers").data as McpServer[]; }
 export function getWorkflows(): Workflow[] {
     const rawWorkflows = executeQuery("SELECT * FROM workflows").data as any[];
-    return rawWorkflows.map(w => ({ ...w, sources: w.sources ? String(w.sources).split('|||') : [] }));
+    return rawWorkflows.map(w => ({ 
+        ...w, 
+        sources: w.sources ? String(w.sources).split('|||') : [],
+        dependencies: w.dependencies ? String(w.dependencies).split('|||') : [],
+        triggersOnSuccess: w.triggersOnSuccess ? String(w.triggersOnSuccess).split('|||') : [],
+        nodes: JSON.parse(w.nodes || '[]'),
+        edges: JSON.parse(w.edges || '[]'),
+    }));
 };
-export function getLoadedMcpServers(): McpServer[] { return executeQuery("SELECT * FROM mcp_servers WHERE is_loaded = 1").data; }
-export function saveMcpServer(server: McpServer, isLoaded: boolean) { executeQuery("REPLACE INTO mcp_servers (id, name, url, type, description, is_loaded) VALUES (?, ?, ?, ?, ?, ?)", [server.id, server.name, server.url, server.type, server.description, isLoaded ? 1 : 0]); };
-export function saveWorkflow(workflow: Workflow) { executeQuery("REPLACE INTO workflows (id, name, lastExecuted, status, sources, transformer, destination, repartition, trigger, transformerCode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [workflow.id, workflow.name, workflow.lastExecuted, workflow.status, workflow.sources.join('|||'), workflow.transformer, workflow.destination, workflow.repartition, workflow.trigger, workflow.transformerCode || null]); };
+export function getLoadedMcpServers(): McpServer[] { return executeQuery("SELECT * FROM mcp_servers WHERE is_loaded = 1").data as McpServer[]; }
+export function saveMcpServer(server: McpServer) { executeQuery("REPLACE INTO mcp_servers (id, name, url, type, description, is_loaded) VALUES (?, ?, ?, ?, ?, ?)", [server.id, server.name, server.url, server.type, server.description, server.isLoaded ? 1 : 0]); };
+export function saveWorkflow(workflow: Workflow, asNewVersion: boolean) { 
+    let versionToSave = workflow.currentVersion || 1;
+    if (asNewVersion) {
+        versionToSave++;
+        executeQuery("INSERT INTO workflow_versions (workflow_id, version, createdAt, nodes, edges) VALUES (?, ?, ?, ?, ?)", [workflow.id, versionToSave, new Date().toISOString(), JSON.stringify(workflow.nodes), JSON.stringify(workflow.edges)]);
+    }
+
+    executeQuery("REPLACE INTO workflows (id, name, lastExecuted, status, sources, transformer, destination, repartition, trigger, transformerCode, dependencies, triggersOnSuccess, nodes, edges, currentVersion) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+        workflow.id, 
+        workflow.name, 
+        workflow.lastExecuted, 
+        workflow.status, 
+        (workflow.sources || []).join('|||'), 
+        workflow.transformer, 
+        workflow.destination, 
+        workflow.repartition, 
+        workflow.trigger, 
+        workflow.transformerCode || null,
+        (workflow.dependencies || []).join('|||'),
+        (workflow.triggersOnSuccess || []).join('|||'),
+        JSON.stringify(workflow.nodes),
+        JSON.stringify(workflow.edges),
+        versionToSave
+    ]); 
+};
 export function deleteWorkflow(id: string) { executeQuery("DELETE FROM workflows WHERE id = ?", [id]); }
 export function getDashboards(): DashboardType[] {
     const dashboardsResult = executeQuery("SELECT * FROM dashboards").data as any[];
@@ -500,7 +586,7 @@ export function deleteDashboard(id: string) {
     executeQuery("DELETE FROM dashboards WHERE id = ?", [id]);
     executeQuery("DELETE FROM dashboard_widgets WHERE dashboard_id = ?", [id]);
 };
-export function getUsers(): User[] { return executeQuery("SELECT * FROM dl_users ORDER BY name").data; }
+export function getUsers(): User[] { return executeQuery("SELECT * FROM dl_users ORDER BY name").data as User[]; }
 export function saveUser(user: User) {
     const upsertQuery = `INSERT INTO dl_users (id, name, email, role) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, email = excluded.email, role = excluded.role;`;
     const result = executeQuery(upsertQuery, [user.id, user.name, user.email, user.role]);
@@ -510,3 +596,39 @@ export function deleteUser(userId: number) {
     const result = executeQuery("DELETE FROM dl_users WHERE id = ?", [userId]);
     if (result.error) throw new Error(`DB Error: ${result.error}`);
 };
+
+// --- NEWLY IMPLEMENTED ---
+export function logAuditEvent({ user, action, details }: { user: string, action: string, details: string }) {
+    executeQuery("INSERT INTO audit_logs (timestamp, user, action, details) VALUES (?, ?, ?, ?)", [new Date().toISOString(), user, action, details]);
+}
+export function getAuditLogs(): AuditLog[] { return executeQuery("SELECT * FROM audit_logs ORDER BY id DESC LIMIT 100").data as AuditLog[]; }
+export function getPiiFindings(): PiiFinding[] {
+    // This is a mock scan.
+    return [
+        { table: 'p21_customers', column: 'contact_email', piiType: 'EMAIL' },
+        { table: 'p21_customers', column: 'contact_name', piiType: 'NAME' },
+        { table: 'p21_customers', column: 'address', piiType: 'ADDRESS' },
+    ];
+}
+export function getDataAccessPolicies(): DataAccessPolicy[] {
+    const policies = executeQuery("SELECT id, role, \"table\", accessLevel, columnPermissions, rowLevelSecurity FROM data_access_policies").data as any[];
+    return policies.map(p => ({ ...p, columnPermissions: p.columnPermissions ? JSON.parse(p.columnPermissions) : {} }));
+}
+export function saveDataAccessPolicy(policy: DataAccessPolicy) {
+    executeQuery("REPLACE INTO data_access_policies (id, role, \"table\", accessLevel, columnPermissions, rowLevelSecurity) VALUES (?, ?, ?, ?, ?, ?)", [policy.id, policy.role, policy.table, policy.accessLevel, JSON.stringify(policy.columnPermissions || {}), policy.rowLevelSecurity]);
+}
+export function getPredictionModels(): PredictionModel[] { return executeQuery("SELECT * FROM prediction_models").data as PredictionModel[]; }
+export function createPrediction(modelData: Omit<PredictionModel, 'id' | 'status' | 'createdAt'>) {
+    const newModel: PredictionModel = {
+        ...modelData,
+        id: `pred-${Date.now()}`,
+        status: 'Ready',
+        createdAt: new Date().toISOString(),
+        accuracy: Math.random() * (0.95 - 0.75) + 0.75, // Random accuracy between 75% and 95%
+        resultTable: `prediction_${modelData.name.replace(/\s+/g, '_').toLowerCase()}`
+    };
+    executeQuery("INSERT INTO prediction_models (id, name, sourceTable, targetColumn, status, createdAt, accuracy, resultTable) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [newModel.id, newModel.name, newModel.sourceTable, newModel.targetColumn, newModel.status, newModel.createdAt, newModel.accuracy, newModel.resultTable]);
+}
+export function deletePredictionModel(modelId: string) { executeQuery("DELETE FROM prediction_models WHERE id = ?", [modelId]); }
+export function getWorkflowVersions(workflowId: string): WorkflowVersion[] { return executeQuery("SELECT * FROM workflow_versions WHERE workflow_id = ? ORDER BY version DESC", [workflowId]).data as WorkflowVersion[]; }
+export function getExecutionLogs(workflowId: string): ExecutionLog[] { return executeQuery("SELECT * FROM execution_logs WHERE workflow_id = ? ORDER BY id DESC", [workflowId]).data as ExecutionLog[]; }

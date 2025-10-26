@@ -1,5 +1,4 @@
 
-
 import { executeQuery } from './be-db';
 import type { Workflow } from '../types';
 
@@ -70,7 +69,7 @@ const runIngestCustomerOrders = async (logCallback: (message: string) => void): 
     }
 
     await delay(300);
-    logCallback(`[SUCCESS] Successfully ingested new order. Dashboard will reflect this on next refresh.`);
+    logCallback(`[INFO] Successfully ingested new order.`);
     return true;
 }
 
@@ -126,7 +125,7 @@ const runCalculateDailyMetrics = async (logCallback: (message: string) => void):
     }
     
     await delay(300);
-    logCallback(`[SUCCESS] Daily sales metrics have been updated.`);
+    logCallback(`[INFO] Daily sales metrics have been updated.`);
     return true;
 }
 
@@ -144,7 +143,6 @@ export const executeWorkflow = async (
     logCallback: (message: string) => void
 ): Promise<boolean> => {
     logCallback(`[INFO] Starting workflow '${workflow.name}'...`);
-    logCallback(`[INFO] Triggered by: Manual Run`);
     
     try {
         let success = false;
@@ -155,7 +153,6 @@ export const executeWorkflow = async (
             case 'wf-calculate-daily-metrics':
                 success = await runCalculateDailyMetrics(logCallback);
                 break;
-            // For other workflows, we'll use a placeholder that does nothing
             default:
                 success = await runNotImplemented(logCallback);
                 break;

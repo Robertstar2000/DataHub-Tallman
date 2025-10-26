@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import StructuredDataExplorer from './StructuredDataExplorer';
 import UnstructuredDataExplorer from './UnstructuredDataExplorer';
@@ -9,9 +10,8 @@ const DataExplorer: React.FC = () => {
 
   return (
     <div className="space-y-6 h-full flex flex-col">
-      <h1 className="text-3xl font-bold text-white">Data Explorer</h1>
-      
-      <div className="flex-none">
+      <div className="flex-none flex justify-between items-center">
+        <h1 className="text-3xl font-bold text-white">Data Explorer</h1>
         <div className="flex border-b border-slate-700">
           <TabButton name="structured" activeView={activeView} setActiveView={setActiveView}>Structured Data (SQL)</TabButton>
           <TabButton name="unstructured" activeView={activeView} setActiveView={setActiveView}>Unstructured Data (AI)</TabButton>

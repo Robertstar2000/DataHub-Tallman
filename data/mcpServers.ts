@@ -41,6 +41,41 @@ export const initialMcpServers: { name: string; url: string; description: string
     },
 ];
 
+export const marketplaceMcpServers: Omit<McpServer, 'id' | 'isLoaded'>[] = [
+    {
+        name: 'HubSpot Connector',
+        url: 'api.hubapi.com',
+        description: 'Sync contacts, companies, deals, and tickets from your HubSpot CRM.',
+        type: 'Marketplace',
+        isInstalled: false,
+        category: 'CRM'
+    },
+    {
+        name: 'Shopify Connector',
+        url: 'my-store.myshopify.com/admin/api',
+        description: 'Integrate your eCommerce store by syncing products, orders, and customers.',
+        type: 'Marketplace',
+        isInstalled: false,
+        category: 'eCommerce'
+    },
+    {
+        name: 'Zendesk Connector',
+        url: 'my-company.zendesk.com/api/v2',
+        description: 'Pull support tickets, users, and satisfaction ratings for analysis.',
+        type: 'Marketplace',
+        isInstalled: false,
+        category: 'Support'
+    },
+    {
+        name: 'QuickBooks Online',
+        url: 'quickbooks.api.intuit.com/v3',
+        description: 'Sync invoices, bills, customers, and vendors from your accounting software.',
+        type: 'Marketplace',
+        isInstalled: false,
+        category: 'Finance'
+    },
+];
+
 export const indexedDocumentCollections: { name: string; url: string; description: string; type: 'DocumentCollection' }[] = [
     {
         name: 'Internal Knowledge Base',

@@ -24,6 +24,9 @@ self.onmessage = async (e: MessageEvent) => {
             case 'findSimilarDocuments':
                 result = dbLogic.findSimilarDocuments(payload.docId, payload.count);
                 break;
+            case 'findSimilarDocumentsByQuery':
+                result = dbLogic.findSimilarDocumentsByQuery(payload.query, payload.count);
+                break;
             case 'getDbStatistics':
                 result = dbLogic.getDbStatistics();
                 break;
@@ -53,11 +56,11 @@ self.onmessage = async (e: MessageEvent) => {
                 result = dbLogic.getLoadedMcpServers();
                 break;
             case 'saveMcpServer':
-                dbLogic.saveMcpServer(payload.server, payload.isLoaded);
+                dbLogic.saveMcpServer(payload.server);
                 result = 'MCP server saved.';
                 break;
             case 'saveWorkflow':
-                dbLogic.saveWorkflow(payload.workflow);
+                dbLogic.saveWorkflow(payload.workflow, payload.asNewVersion);
                 result = 'Workflow saved.';
                 break;
             case 'deleteWorkflow':
@@ -85,6 +88,41 @@ self.onmessage = async (e: MessageEvent) => {
             case 'deleteUser':
                 dbLogic.deleteUser(payload.userId);
                 result = 'User deleted.';
+                break;
+            // FIX: Add handlers for new functions
+            case 'logAuditEvent':
+                dbLogic.logAuditEvent(payload);
+                result = 'Audit event logged.';
+                break;
+            case 'getAuditLogs':
+                result = dbLogic.getAuditLogs();
+                break;
+            case 'getPiiFindings':
+                result = dbLogic.getPiiFindings();
+                break;
+            case 'getDataAccessPolicies':
+                result = dbLogic.getDataAccessPolicies();
+                break;
+            case 'saveDataAccessPolicy':
+                dbLogic.saveDataAccessPolicy(payload.policy);
+                result = 'Policy saved.';
+                break;
+            case 'getPredictionModels':
+                result = dbLogic.getPredictionModels();
+                break;
+            case 'createPrediction':
+                dbLogic.createPrediction(payload.modelData);
+                result = 'Prediction model created.';
+                break;
+            case 'deletePredictionModel':
+                dbLogic.deletePredictionModel(payload.modelId);
+                result = 'Prediction model deleted.';
+                break;
+            case 'getWorkflowVersions':
+                result = dbLogic.getWorkflowVersions(payload.workflowId);
+                break;
+            case 'getExecutionLogs':
+                result = dbLogic.getExecutionLogs(payload.workflowId);
                 break;
             default:
                 throw new Error(`Unknown worker action: ${action}`);

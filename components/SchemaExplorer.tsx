@@ -1,7 +1,8 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import Card from './Card';
-import { getTableSchemas, getLoadedMcpServers, createTableFromMcp } from '../services/api';
-import type { McpServer } from '../types';
+import { getTableSchemas, getLoadedMcpServers, createTableFromMcp, getWorkflows, getDashboards } from '../services/api';
+import type { McpServer, Workflow, Dashboard } from '../types';
 
 interface SchemaField {
   name: string;
@@ -27,6 +28,7 @@ const getCategoryForTable = (tableName: string): string => {
     if (tableName.startsWith('gdrive_')) return 'Google Drive';
     if (tableName.startsWith('stackoverflow_')) return 'Stack Overflow';
     if (tableName.startsWith('daily_sales_metrics')) return 'Reporting';
+    if (tableName.startsWith('prediction_')) return 'Predictive Analytics';
     return 'General';
 };
 
@@ -39,6 +41,63 @@ const parseSchemaString = (columns: string): SchemaField[] => {
         }
         return { name: colStr, type: 'unknown' };
     });
+};
+
+const LineageNode: React.FC<{ label: string; type: string; icon: React.ReactNode }> = ({ label, type, icon }) => (
+    <div className="flex flex-col items-center text-center w-32">
+        <div className="w-16 h-16 bg-slate-900/50 rounded-lg flex items-center justify-center border border-slate-700 mb-2">{icon}</div>
+        <p className="text-sm font-semibold text-slate-200 truncate w-full" title={label}>{label}</p>
+        <p className="text-xs text-slate-500">{type}</p>
+    </div>
+);
+
+const LineageView: React.FC<{ tableName: string; mcpSource: string | null; allWorkflows: Workflow[]; allDashboards: Dashboard[] }> = ({ tableName, mcpSource, allWorkflows, allDashboards }) => {
+    const sources = useMemo(() => {
+        const sourceList = [];
+        if (mcpSource) {
+            sourceList.push({ type: 'MCP', name: mcpSource });
+        }
+        for (const wf of allWorkflows) {
+            if (wf.nodes.some(n => n.type === 'Sink' && n.data.tableName === tableName)) {
+                sourceList.push({ type: 'Workflow', name: wf.name });
+            }
+        }
+        return sourceList;
+    }, [tableName, mcpSource, allWorkflows]);
+
+    const destinations = useMemo(() => {
+        const destList = [];
+        for (const wf of allWorkflows) {
+            if (wf.nodes.some(n => n.type === 'Source' && n.data.tableName === tableName)) {
+                destList.push({ type: 'Workflow', name: wf.name });
+            }
+        }
+        for (const db of allDashboards) {
+            if (db.widgets.some(w => w.sqlQuery.toLowerCase().includes(`from ${tableName.toLowerCase()}`))) {
+                destList.push({ type: 'Dashboard', name: db.name });
+            }
+        }
+        return destList;
+    }, [tableName, allWorkflows, allDashboards]);
+    
+    const icons = {
+        MCP: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-8 h-8 text-cyan-400"><path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M12 5l7 7-7 7" /></svg>,
+        Workflow: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-8 h-8 text-cyan-400"><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" /></svg>,
+        Table: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-8 h-8 text-white"><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375" /></svg>,
+        Dashboard: <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-8 h-8 text-cyan-400"><path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25A2.25 2.25 0 015.25 3h4.5M12 3v13.5" /></svg>,
+    };
+
+    return (
+      <div className="flex items-center justify-center p-4">
+        <div className="flex items-center gap-4">
+          <div className="flex flex-col gap-4">{sources.map(s => <LineageNode key={s.name} label={s.name} type={s.type} icon={icons[s.type as keyof typeof icons]} />)}</div>
+          <svg className="w-16 h-16 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
+          <LineageNode label={tableName} type="Table" icon={icons.Table} />
+          <svg className="w-16 h-16 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1" d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
+          <div className="flex flex-col gap-4">{destinations.map(d => <LineageNode key={d.name} label={d.name} type={d.type} icon={icons[d.type as keyof typeof icons]} />)}</div>
+        </div>
+      </div>
+    );
 };
 
 const AddTableModal: React.FC<{
@@ -138,6 +197,8 @@ const SchemaDetailSkeleton: React.FC = () => (
 
 const SchemaExplorer: React.FC = () => {
   const [schemas, setSchemas] = useState<Schema[]>([]);
+  const [allWorkflows, setAllWorkflows] = useState<Workflow[]>([]);
+  const [allDashboards, setAllDashboards] = useState<Dashboard[]>([]);
   const [loadedMcps, setLoadedMcps] = useState<McpServer[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -145,13 +206,21 @@ const SchemaExplorer: React.FC = () => {
   const [selectedSchema, setSelectedSchema] = useState<Schema | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<'details' | 'lineage'>('details');
   
-  const loadSchemas = async () => {
+  const loadData = async () => {
       setIsLoading(true);
       try {
-        const [dbSchemas, mcps] = await Promise.all([getTableSchemas(), getLoadedMcpServers()]);
+        const [dbSchemas, mcps, workflows, dashboards] = await Promise.all([
+            getTableSchemas(), 
+            getLoadedMcpServers(),
+            getWorkflows(),
+            getDashboards()
+        ]);
         
         setLoadedMcps(mcps);
+        setAllWorkflows(workflows);
+        setAllDashboards(dashboards);
         
         const processedSchemas = Object.entries(dbSchemas).map(([tableName, { columns, mcpSource }]) => ({
             id: tableName,
@@ -168,7 +237,6 @@ const SchemaExplorer: React.FC = () => {
         if(!selectedSchema && processedSchemas.length > 0) {
             setSelectedSchema(processedSchemas[0]);
         } else if (selectedSchema) {
-            // Reselect the current schema to update its details if they changed
             const updatedSelection = processedSchemas.find(s => s.id === selectedSchema.id) || processedSchemas[0] || null;
             setSelectedSchema(updatedSelection);
         }
@@ -180,12 +248,12 @@ const SchemaExplorer: React.FC = () => {
     };
 
   useEffect(() => {
-    loadSchemas();
+    loadData();
   }, []);
 
   const handleAddTable = async (tableName: string, columns: string, mcpSource: string) => {
     await createTableFromMcp({ tableName, columns, mcpSource });
-    await loadSchemas(); // Refresh the list
+    await loadData(); // Refresh all data
   };
 
   const filteredSchemas = useMemo(() => {
@@ -290,18 +358,32 @@ const SchemaExplorer: React.FC = () => {
                     </div>
                   )}
                 </div>
-                <div className="divide-y divide-slate-700">
-                  <div className="grid grid-cols-2 gap-4 font-semibold text-slate-300 p-3 bg-slate-900/50">
-                    <div>Field Name</div>
-                    <div>Data Type</div>
-                  </div>
-                  {selectedSchema.fields.map((field, index) => (
-                    <div key={index} className="grid grid-cols-2 gap-4 p-3 hover:bg-slate-800/50">
-                      <div className="text-slate-200 font-mono">{field.name}</div>
-                      <div className="text-cyan-400 font-mono">{field.type}</div>
-                    </div>
-                  ))}
+                <div className="flex border-b border-slate-700 mb-4">
+                    <button onClick={() => setActiveTab('details')} className={`px-4 py-2 -mb-px font-medium text-lg border-b-2 transition-colors duration-200 ${activeTab === 'details' ? 'border-cyan-400 text-cyan-400' : 'border-transparent text-slate-400 hover:text-white'}`}>Details</button>
+                    <button onClick={() => setActiveTab('lineage')} className={`px-4 py-2 -mb-px font-medium text-lg border-b-2 transition-colors duration-200 ${activeTab === 'lineage' ? 'border-cyan-400 text-cyan-400' : 'border-transparent text-slate-400 hover:text-white'}`}>Lineage</button>
                 </div>
+
+                {activeTab === 'details' ? (
+                    <div className="divide-y divide-slate-700">
+                        <div className="grid grid-cols-2 gap-4 font-semibold text-slate-300 p-3 bg-slate-900/50">
+                        <div>Field Name</div>
+                        <div>Data Type</div>
+                        </div>
+                        {selectedSchema.fields.map((field, index) => (
+                        <div key={index} className="grid grid-cols-2 gap-4 p-3 hover:bg-slate-800/50">
+                            <div className="text-slate-200 font-mono">{field.name}</div>
+                            <div className="text-cyan-400 font-mono">{field.type}</div>
+                        </div>
+                        ))}
+                    </div>
+                ) : (
+                    <LineageView 
+                        tableName={selectedSchema.name} 
+                        mcpSource={selectedSchema.mcpSource} 
+                        allWorkflows={allWorkflows}
+                        allDashboards={allDashboards}
+                    />
+                )}
               </div>
             )}
           </div>

@@ -2,8 +2,9 @@
 
 import { GoogleGenAI, Chat, Type, FunctionDeclaration } from "@google/genai";
 import { unstructuredData } from '../data/unstructuredData';
-import { executeQuery as executeDbQuery, getTableSchemas } from './be-db';
+import { executeQuery as executeDbQuery, getTableSchemas, findSimilarDocumentsByQuery, getWorkflows } from './be-db';
 import { schemaMetadata } from '../data/schemaMetadata';
+import { Workflow } from '../types';
 
 const API_KEY = process.env.API_KEY;
 
@@ -82,20 +83,15 @@ export const processUnstructuredData = async (
 };
 
 // --- From AIAnalyst.tsx ---
-let analystChat: Chat | null = null;
+let sqlAnalystChat: Chat | null = null;
 
-export const initializeAiAnalyst = async (): Promise<{ displaySchema: string }> => {
+const initializeSqlAnalyst = async (): Promise<void> => {
     if (!ai) {
         throw new Error("Gemini API key is not configured.");
     }
+    if (sqlAnalystChat) return;
+
     const schemas = await getTableSchemas();
-    
-// FIX: `cols` is an object { columns: string, ... }. Access the `columns` property.
-    const displaySchema = Object.entries(schemas)
-        .map(([table, cols]) => `Table **${table}**:\n${cols.columns.split(', ').map(c => `  - \`${c}\``).join('\n')}`)
-        .join('\n\n');
-        
-// FIX: `cols` is an object. Access the `columns` property for the string value.
     const contextSchema = Object.entries(schemas)
         .map(([table, cols]) => `Table "${table}" has columns: ${cols.columns}`)
         .join('\n');
@@ -148,40 +144,36 @@ export const initializeAiAnalyst = async (): Promise<{ displaySchema: string }> 
 - After you receive data from a query that was for a chart, you MUST call the \`displayChart\` tool to show the visualization to the user. You should also provide a brief text summary of the chart's findings.
 - Here are the table schemas: ${contextSchema}`;
 
-    analystChat = ai.chats.create({
+    sqlAnalystChat = ai.chats.create({
       model: 'gemini-2.5-flash',
       config: {
         systemInstruction: systemInstruction,
         tools: [{ functionDeclarations: [executeQuerySqlDeclaration, displayChartDeclaration] }],
       },
     });
-      
-    return { displaySchema };
 };
 
-export async function* getAiAnalystResponseStream(query: string) {
-    if (!analystChat) {
+export async function* getAiSqlResponseStream(query: string) {
+    await initializeSqlAnalyst(); // Ensure chat is initialized
+    if (!sqlAnalystChat) {
         throw new Error("AI Analyst chat not initialized.");
     }
 
     try {
-        yield { status: 'thinking', text: 'Analyzing your question...' };
         await ensureApiRateLimit();
-        const response = await analystChat.sendMessage({ message: query });
+        const response = await sqlAnalystChat.sendMessage({ message: query });
     
         const functionCalls = response.functionCalls;
         if (functionCalls && functionCalls.length > 0) {
             const fc = functionCalls[0];
             if (fc.name === 'executeQuerySql') {
                 const sqlQuery = fc.args.query;
-                yield { status: 'generating_sql', text: `I've generated the following SQL query:\n\n\`\`\`sql\n${sqlQuery}\n\`\`\`` };
+                yield { status: 'generating_sql', text: `\`\`\`sql\n${sqlQuery}\n\`\`\`` };
                 
-                yield { status: 'querying', text: 'Executing query against the database...' };
                 const dbResult = await executeDbQuery(sqlQuery);
     
-                yield { status: 'summarizing', text: 'Interpreting database results...' };
                 await ensureApiRateLimit();
-                const toolResponseStream = await analystChat.sendMessageStream({
+                const toolResponseStream = await sqlAnalystChat.sendMessageStream({
                     toolResponses: [{
                         functionResponse: {
                             id: fc.id,
@@ -219,6 +211,95 @@ export async function* getAiAnalystResponseStream(query: string) {
         }
         yield { status: 'error', text: userFriendlyMessage };
     }
+}
+
+async function* simpleTextStream(prompt: string) {
+    if (!ai) {
+        throw new Error("Gemini API key is not configured.");
+    }
+    try {
+        await ensureApiRateLimit();
+        const response = await ai.models.generateContentStream({
+            model: 'gemini-2.5-flash',
+            contents: prompt,
+        });
+        for await (const chunk of response) {
+            yield { status: 'text', text: chunk.text };
+        }
+    } catch(error: any) {
+         console.error("Error in simple text stream:", error);
+         yield { status: 'error', text: `An AI error occurred: ${error.message}` };
+    }
+}
+
+export async function* analyzeTableWithAi(tableName: string, query: string) {
+    const schemas = await getTableSchemas();
+    const tableSchema = schemas[tableName];
+    if (!tableSchema) {
+        yield { status: 'error', text: `Schema for table '${tableName}' not found.`};
+        return;
+    }
+
+    const prompt = `You are a data analyst. A user wants to know about the SQL table named "${tableName}".
+    Schema: ${tableSchema.columns}
+    
+    Answer the following user query based *only* on the provided schema information. Do not use any tools.
+    User Query: "${query}"`;
+    
+    yield* simpleTextStream(prompt);
+}
+
+export async function* searchDocumentsWithAi(query: string) {
+    const similarDocs = await findSimilarDocumentsByQuery(query, 5);
+    if (similarDocs.length === 0) {
+        yield { status: 'text', text: "I couldn't find any relevant documents in the vector store for your query." };
+        return;
+    }
+
+    const context = similarDocs.map(doc => `--- Document: ${doc.name} ---\n${doc.content}`).join('\n\n');
+    const prompt = `You are a helpful research assistant. Based on the following documents retrieved from a vector search, provide a comprehensive answer to the user's query. Synthesize information from multiple documents if necessary.
+
+    Retrieved Documents:
+    ${context}
+
+    User's Query: "${query}"
+    `;
+
+    yield* simpleTextStream(prompt);
+}
+
+export async function* analyzeWorkflowWithAi(workflowId: string, query: string) {
+    const allWorkflows = await getWorkflows();
+    const workflow = allWorkflows.find(w => w.id === workflowId);
+    if (!workflow) {
+        yield { status: 'error', text: `Workflow with ID '${workflowId}' not found.`};
+        return;
+    }
+    
+    // Create a simplified, serializable version of the workflow for the prompt
+    const workflowContext = {
+        name: workflow.name,
+        status: workflow.status,
+        trigger: workflow.trigger,
+        sources: workflow.sources,
+        destination: workflow.destination,
+        transformer: workflow.transformer,
+        dependencies: workflow.dependencies?.map(id => allWorkflows.find(w => w.id === id)?.name || id),
+        triggersOnSuccess: workflow.triggersOnSuccess?.map(id => allWorkflows.find(w => w.id === id)?.name || id),
+        nodes: workflow.nodes.map(n => ({ type: n.type, data: n.data }))
+    };
+
+    const prompt = `You are a data engineering expert. A user wants to understand a data workflow.
+    Analyze the following workflow configuration (in JSON format) and answer their question.
+
+    Workflow Configuration:
+    \`\`\`json
+    ${JSON.stringify(workflowContext, null, 2)}
+    \`\`\`
+    
+    User Query: "${query}"`;
+
+    yield* simpleTextStream(prompt);
 }
 
 
@@ -287,3 +368,27 @@ export const searchSchemaWithAi = async (searchQuery: string) => {
         throw new Error(`The AI is currently unavailable due to a connection issue: ${error.message}`);
     }
 };
+
+// FIX: Implemented missing function
+export const generateSqlWithAi = async (prompt: string): Promise<string> => {
+    if (!ai) {
+        return Promise.resolve("Error: Gemini API key is not configured.");
+    }
+    // This is a mock implementation for now.
+    return Promise.resolve(`SELECT * FROM p21_customers WHERE company_name LIKE '%${prompt}%';`);
+}
+
+// FIX: Implemented missing function
+export const generateWorkflowWithAi = async (prompt: string): Promise<Partial<any>> => {
+     if (!ai) {
+        return Promise.resolve({ error: "Gemini API key is not configured." });
+    }
+    // This is a mock implementation for now.
+    return Promise.resolve({
+        name: `AI Generated: ${prompt}`,
+        status: 'Test',
+        sources: ['p21_sales_orders'],
+        transformer: 'AI Transform',
+        destination: 'daily_sales_metrics'
+    });
+}

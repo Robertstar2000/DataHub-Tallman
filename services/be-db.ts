@@ -1,6 +1,6 @@
 import * as dbLogic from './db-logic';
 import type { UnstructuredDocument } from '../data/unstructuredData';
-import type { Workflow, McpServer, Dashboard as DashboardType, WidgetConfig, User } from '../types';
+import type { Workflow, McpServer, Dashboard as DashboardType, User, AuditLog, PiiFinding, DataAccessPolicy, PredictionModel, WorkflowVersion, ExecutionLog } from '../types';
 
 let dbWorker: Worker | null = null;
 const pendingRequests = new Map<string, { resolve: (value: any) => void, reject: (reason?: any) => void }>();
@@ -110,6 +110,11 @@ export const findSimilarDocuments = (docId: string, count: number = 3): Promise<
     return callWorker('findSimilarDocuments', { docId, count });
 };
 
+export const findSimilarDocumentsByQuery = (query: string, count: number = 5): Promise<UnstructuredDocument[]> => {
+    if (useFallback) return Promise.resolve(dbLogic.findSimilarDocumentsByQuery(query, count));
+    return callWorker('findSimilarDocumentsByQuery', { query, count });
+};
+
 export const getDbStatistics = (): Promise<any> => {
     if (useFallback) return Promise.resolve(dbLogic.getDbStatistics());
     return callWorker('getDbStatistics');
@@ -155,19 +160,21 @@ export const getLoadedMcpServers = (): Promise<McpServer[]> => {
     if (useFallback) return Promise.resolve(dbLogic.getLoadedMcpServers());
     return callWorker('getLoadedMcpServers');
 }
-export const saveMcpServer = (server: McpServer, isLoaded: boolean): Promise<void> => {
+// FIX: Changed signature to match usage in the app, accepting a single server object.
+export const saveMcpServer = (server: McpServer): Promise<void> => {
     if (useFallback) {
-        dbLogic.saveMcpServer(server, isLoaded);
+        dbLogic.saveMcpServer(server);
         return Promise.resolve();
     }
-    return callWorker('saveMcpServer', { server, isLoaded });
+    return callWorker('saveMcpServer', { server });
 }
-export const saveWorkflow = (workflow: Workflow): Promise<void> => {
+// FIX: Corrected signature to pass 'asNewVersion' flag to the worker.
+export const saveWorkflow = (workflow: Workflow, asNewVersion: boolean): Promise<void> => {
     if (useFallback) {
-        dbLogic.saveWorkflow(workflow);
+        dbLogic.saveWorkflow(workflow, asNewVersion);
         return Promise.resolve();
     }
-    return callWorker('saveWorkflow', { workflow });
+    return callWorker('saveWorkflow', { workflow, asNewVersion });
 }
 export const deleteWorkflow = (id: string): Promise<void> => {
     if (useFallback) {
@@ -211,4 +218,67 @@ export const deleteUser = (userId: number): Promise<void> => {
         return Promise.resolve();
     }
     return callWorker('deleteUser', { userId });
+}
+
+// --- NEWLY IMPLEMENTED ---
+export const logAuditEvent = (payload: { user: string, action: string, details: string }): Promise<void> => {
+    if (useFallback) {
+        dbLogic.logAuditEvent(payload);
+        return Promise.resolve();
+    }
+    return callWorker('logAuditEvent', payload);
+}
+
+export const getAuditLogs = (): Promise<AuditLog[]> => {
+    if (useFallback) return Promise.resolve(dbLogic.getAuditLogs());
+    return callWorker('getAuditLogs');
+}
+
+export const getPiiFindings = (): Promise<PiiFinding[]> => {
+    if (useFallback) return Promise.resolve(dbLogic.getPiiFindings());
+    return callWorker('getPiiFindings');
+}
+
+export const getDataAccessPolicies = (): Promise<DataAccessPolicy[]> => {
+    if (useFallback) return Promise.resolve(dbLogic.getDataAccessPolicies());
+    return callWorker('getDataAccessPolicies');
+}
+
+export const saveDataAccessPolicy = (policy: DataAccessPolicy): Promise<void> => {
+    if (useFallback) {
+        dbLogic.saveDataAccessPolicy(policy);
+        return Promise.resolve();
+    }
+    return callWorker('saveDataAccessPolicy', { policy });
+}
+
+export const getPredictionModels = (): Promise<PredictionModel[]> => {
+    if (useFallback) return Promise.resolve(dbLogic.getPredictionModels());
+    return callWorker('getPredictionModels');
+}
+
+export const createPrediction = (modelData: Omit<PredictionModel, 'id' | 'status' | 'createdAt'>): Promise<void> => {
+    if (useFallback) {
+        dbLogic.createPrediction(modelData);
+        return Promise.resolve();
+    }
+    return callWorker('createPrediction', { modelData });
+}
+
+export const deletePredictionModel = (modelId: string): Promise<void> => {
+    if (useFallback) {
+        dbLogic.deletePredictionModel(modelId);
+        return Promise.resolve();
+    }
+    return callWorker('deletePredictionModel', { modelId });
+}
+
+export const getWorkflowVersions = (workflowId: string): Promise<WorkflowVersion[]> => {
+    if (useFallback) return Promise.resolve(dbLogic.getWorkflowVersions(workflowId));
+    return callWorker('getWorkflowVersions', { workflowId });
+}
+
+export const getExecutionLogs = (workflowId: string): Promise<ExecutionLog[]> => {
+    if (useFallback) return Promise.resolve(dbLogic.getExecutionLogs(workflowId));
+    return callWorker('getExecutionLogs', { workflowId });
 }
