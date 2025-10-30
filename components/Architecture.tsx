@@ -275,7 +275,6 @@ const Architecture: React.FC<ArchitectureProps> = ({ setCurrentView }) => {
             {toolHotspots.map(spot => (
                 <div
                 key={spot.id}
-// FIX: Corrected typo in Tailwind CSS class from -translatey-1/2 to -translate-y-1/2.
                 className="absolute w-5 h-5 -translate-x-1/2 -translate-y-1/2 z-10"
                 style={{ top: spot.top, left: spot.left }}
                 onClick={() => spot.targetView && setCurrentView(spot.targetView)}

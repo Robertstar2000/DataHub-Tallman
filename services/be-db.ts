@@ -29,13 +29,15 @@ function getOrCreateWorker(): Worker | null {
         const worker = new Worker('/services/db.worker.ts', { type: 'module' });
 
         worker.onmessage = (e: MessageEvent) => {
-            const { id, result, error } = e.data;
+            const { id, result, error, action } = e.data;
             if (pendingRequests.has(id)) {
                 const { resolve, reject } = pendingRequests.get(id)!;
                 if (error) {
                     const errorMessage = error.message || 'An unknown worker error occurred.';
-                    console.error(`DB Worker Error for request ${id} (${e.data.action}):`, errorMessage, error.stack);
-                    reject(new Error(errorMessage));
+                    console.error(`DB Worker Error for request ${id} (action: ${action}):`, errorMessage, error.stack);
+                    const err = new Error(errorMessage); // Create a new error on the main thread
+                    err.stack = error.stack; // Assign the original stack from the worker
+                    reject(err);
                 } else {
                     resolve(result);
                 }
@@ -165,7 +167,6 @@ export const getLoadedMcpServers = (): Promise<McpServer[]> => {
     if (useFallback) return Promise.resolve(dbLogic.getLoadedMcpServers());
     return callWorker('getLoadedMcpServers');
 }
-// FIX: Changed signature to match usage in the app, accepting a single server object.
 export const saveMcpServer = (server: McpServer): Promise<void> => {
     if (useFallback) {
         dbLogic.saveMcpServer(server);
@@ -173,7 +174,6 @@ export const saveMcpServer = (server: McpServer): Promise<void> => {
     }
     return callWorker('saveMcpServer', { server });
 }
-// FIX: Corrected signature to pass 'asNewVersion' flag to the worker.
 export const saveWorkflow = (workflow: Workflow, asNewVersion: boolean): Promise<void> => {
     if (useFallback) {
         dbLogic.saveWorkflow(workflow, asNewVersion);

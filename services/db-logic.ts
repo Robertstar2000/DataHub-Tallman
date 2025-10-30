@@ -1,5 +1,6 @@
 
 
+
 // This file contains the core database logic, designed to be run either
 // within a Web Worker or directly on the main thread as a fallback.
 
@@ -10,7 +11,6 @@ import type { UnstructuredDocument } from '../data/unstructuredData';
 import { initialCustomServers, initialMcpServers, indexedDocumentCollections, externalApiConnectors, marketplaceMcpServers } from '../data/mcpServers';
 import { initialWorkflows } from '../data/workflows';
 import { schemaMetadata } from '../data/schemaMetadata';
-// FIX: Added WidgetConfig to the import list to resolve the type error.
 import type { Workflow, McpServer, Dashboard as DashboardType, User, AuditLog, PiiFinding, DataAccessPolicy, PredictionModel, WorkflowVersion, ExecutionLog, WidgetConfig } from '../types';
 
 let db: Database | null = null;
@@ -308,7 +308,6 @@ function populateNewDatabase(db: Database) {
         (w.sources || []).join('|||'), 
         w.transformer || null, 
         w.destination || null,
-// FIX: Provide a default null value for optional fields to prevent 'undefined' binding error.
         w.repartition || null,
         w.trigger || null, 
         w.transformerCode || null, 
@@ -617,7 +616,6 @@ export function deleteUser(userId: number) {
     if (result.error) throw new Error(`DB Error: ${result.error}`);
 };
 
-// --- NEWLY IMPLEMENTED ---
 export function logAuditEvent({ user, action, details }: { user: string, action: string, details: string }) {
     executeQuery("INSERT INTO audit_logs (timestamp, user, action, details) VALUES (?, ?, ?, ?)", [new Date().toISOString(), user, action, details]);
 }

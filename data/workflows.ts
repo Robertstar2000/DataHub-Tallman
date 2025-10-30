@@ -1,8 +1,8 @@
 
 
+
 import type { Workflow, WorkflowNode } from '../types';
 
-// FIX: Explicitly type the array as WorkflowNode[] to ensure type compatibility
 const defaultNodes: WorkflowNode[] = [
     { id: 'source', type: 'Source', position: { x: 50, y: 150 }, data: { tableName: 'p21_sales_orders' } },
     { id: 'transform', type: 'Transform', position: { x: 300, y: 150 }, data: { script: '/* custom transformation */' } },
@@ -13,7 +13,6 @@ const defaultEdges = [
     { id: 'e-transform-sink', source: 'transform', target: 'sink' },
 ];
 
-// FIX: Removed Omit<> and added deprecated fields to match the full Workflow type, resolving errors in db-logic.
 export const initialWorkflows: Workflow[] = [
   {
     id: 'wf-lead-to-order',

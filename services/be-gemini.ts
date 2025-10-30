@@ -1,5 +1,6 @@
 
 
+
 import { GoogleGenAI, Chat, Type, FunctionDeclaration } from "@google/genai";
 import { unstructuredData } from '../data/unstructuredData';
 import { executeQuery as executeDbQuery, getTableSchemas, findSimilarDocumentsByQuery, getWorkflows } from './be-db';
@@ -313,10 +314,8 @@ export const searchSchemaWithAi = async (searchQuery: string) => {
     
     const schemaContext = Object.entries(tableSchemas).map(([tableName, tableData]) => {
         const tableMeta = schemaMetadata[tableName];
-// FIX: `tableData` is an object { columns: string, ... }. Access its `columns` property. The old code was a logic bug.
         const columnMeta = tableData.columns.split(', ').map(colStr => {
             const colName = colStr.split(' ')[0];
-// FIX: `tableMeta` can be undefined. Use optional chaining to prevent a runtime error.
             const colDescription = tableMeta?.columns?.[colName]?.description || '';
             return `  - ${colName}: ${colDescription}`;
         }).join('\n');
@@ -369,7 +368,6 @@ export const searchSchemaWithAi = async (searchQuery: string) => {
     }
 };
 
-// FIX: Implemented missing function
 export const generateSqlWithAi = async (prompt: string): Promise<string> => {
     if (!ai) {
         return Promise.resolve("Error: Gemini API key is not configured.");
@@ -378,7 +376,6 @@ export const generateSqlWithAi = async (prompt: string): Promise<string> => {
     return Promise.resolve(`SELECT * FROM p21_customers WHERE company_name LIKE '%${prompt}%';`);
 }
 
-// FIX: Implemented missing function
 export const generateWorkflowWithAi = async (prompt: string): Promise<Partial<any>> => {
      if (!ai) {
         return Promise.resolve({ error: "Gemini API key is not configured." });

@@ -89,7 +89,6 @@ self.onmessage = async (e: MessageEvent) => {
                 dbLogic.deleteUser(payload.userId);
                 result = 'User deleted.';
                 break;
-            // FIX: Add handlers for new functions
             case 'logAuditEvent':
                 dbLogic.logAuditEvent(payload);
                 result = 'Audit event logged.';
@@ -97,6 +96,7 @@ self.onmessage = async (e: MessageEvent) => {
             case 'getAuditLogs':
                 result = dbLogic.getAuditLogs();
                 break;
+
             case 'getPiiFindings':
                 result = dbLogic.getPiiFindings();
                 break;

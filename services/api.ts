@@ -1,10 +1,10 @@
 
 
+
 import * as beDb from './be-db';
 import * as beGemini from './be-gemini';
 import * as bePipelines from './be-pipelines';
 import type { UnstructuredDocument } from '../data/unstructuredData';
-// FIX: Import new types from the centralized types.ts file
 import type { Workflow, McpServer, Dashboard, User, PredictionModel, DataAccessPolicy, PiiFinding, AuditLog, WorkflowVersion, ExecutionLog } from '../types';
 
 /**
@@ -18,7 +18,6 @@ const simulateLatency = (ms: number = 200) => new Promise(resolve => setTimeout(
 
 const logAuditEvent = (action: string, details: string) => {
     // In a real app, user might come from an auth context
-    // FIX: Call the newly implemented logAuditEvent function
     beDb.logAuditEvent({ user: 'Analyst', action, details });
 };
 
@@ -117,14 +116,12 @@ export const searchSchemaWithAi = async (searchQuery: string) => {
     return beGemini.searchSchemaWithAi(searchQuery);
 };
 
-// FIX: Implement missing function call
 export const generateSqlWithAi = async (prompt: string) => {
     await simulateLatency(800);
     logAuditEvent('AI_SQL_GENERATION', prompt);
     return beGemini.generateSqlWithAi(prompt);
 };
 
-// FIX: Implement missing function call
 export const generateWorkflowWithAi = async (prompt: string) => {
     await simulateLatency(1200);
     logAuditEvent('AI_WORKFLOW_GENERATION', prompt);
@@ -150,7 +147,6 @@ export const getLoadedMcpServers = async (): Promise<McpServer[]> => {
     return beDb.getLoadedMcpServers();
 }
 
-// FIX: Corrected function call to pass a single server argument as expected by the new signature.
 export const saveMcpServer = async (server: McpServer): Promise<void> => {
     await simulateLatency();
     logAuditEvent('SAVE_MCP', `Saved MCP: ${server.name}, Loaded: ${server.isLoaded}`);
@@ -162,18 +158,16 @@ export const getWorkflows = async (): Promise<Workflow[]> => {
     return beDb.getWorkflows();
 }
 
-// FIX: Implement missing function call
 export const getWorkflowVersions = async (workflowId: string): Promise<WorkflowVersion[]> => {
     await simulateLatency();
     return beDb.getWorkflowVersions(workflowId);
 }
-// FIX: Implement missing function call
+
 export const getExecutionLogs = async (workflowId: string): Promise<ExecutionLog[]> => {
     await simulateLatency();
     return beDb.getExecutionLogs(workflowId);
 }
 
-// FIX: Corrected function call to pass both workflow and asNewVersion arguments.
 export const saveWorkflow = async (workflow: Workflow, asNewVersion: boolean): Promise<void> => {
     await simulateLatency();
     logAuditEvent('SAVE_WORKFLOW', `Saved workflow: ${workflow.name}, New Version: ${asNewVersion}`);
@@ -222,46 +216,39 @@ export const deleteUser = async (userId: number): Promise<void> => {
 };
 
 // --- New Feature APIs ---
-// FIX: Implement missing function call
 export const getAuditLogs = async (): Promise<AuditLog[]> => {
     await simulateLatency();
     return beDb.getAuditLogs();
 };
 
-// FIX: Implement missing function call
 export const getPiiFindings = async (): Promise<PiiFinding[]> => {
     await simulateLatency();
     logAuditEvent('PII_SCAN', 'Full database scan for PII initiated.');
     return beDb.getPiiFindings();
 };
 
-// FIX: Implement missing function call
 export const getDataAccessPolicies = async (): Promise<DataAccessPolicy[]> => {
     await simulateLatency();
     return beDb.getDataAccessPolicies();
 };
 
-// FIX: Implement missing function call
 export const saveDataAccessPolicy = async (policy: DataAccessPolicy): Promise<void> => {
     await simulateLatency();
     logAuditEvent('SAVE_POLICY', `Policy for ${policy.role} on ${policy.table} set to ${policy.accessLevel}`);
     return beDb.saveDataAccessPolicy(policy);
 };
 
-// FIX: Implement missing function call
 export const getPredictionModels = async (): Promise<PredictionModel[]> => {
     await simulateLatency();
     return beDb.getPredictionModels();
 };
 
-// FIX: Implement missing function call
 export const createPrediction = async (modelData: Omit<PredictionModel, 'id' | 'status' | 'createdAt'>): Promise<void> => {
     await simulateLatency(1500); // Simulate model training
     logAuditEvent('CREATE_PREDICTION', `New model created: ${modelData.name}`);
     return beDb.createPrediction(modelData);
 };
 
-// FIX: Implement missing function call
 export const deletePredictionModel = async (modelId: string): Promise<void> => {
     await simulateLatency();
     logAuditEvent('DELETE_PREDICTION', `Deleted model ID: ${modelId}`);

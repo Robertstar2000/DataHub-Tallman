@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
@@ -37,8 +38,14 @@ const App: React.FC = () => {
         await initializeDatabase();
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
+        const errorStack = err instanceof Error ? err.stack : 'No stack trace available.';
         console.error("Failed to initialize database:", err);
-        setDbError(`Could not load the database. Some features might not work correctly.\n\nDetails:\n${errorMessage}`);
+
+        let fullError = `Details:\n${errorMessage}`;
+        if(errorStack) {
+            fullError += `\n\nStack Trace:\n${errorStack}`;
+        }
+        setDbError(`Could not load the database. Some features might not work correctly.\n\n${fullError}`);
       } finally {
         setIsDbLoading(false);
       }
