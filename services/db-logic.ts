@@ -1,9 +1,10 @@
 
+
 // This file contains the core database logic, designed to be run either
 // within a Web Worker or directly on the main thread as a fallback.
 
 import type { Database } from 'sql.js';
-import initSqlJs from 'sql.js';
+import initSqlJs from 'https://esm.sh/sql.js@1.10.3';
 import { unstructuredData } from '../data/unstructuredData';
 import type { UnstructuredDocument } from '../data/unstructuredData';
 import { initialCustomServers, initialMcpServers, indexedDocumentCollections, externalApiConnectors, marketplaceMcpServers } from '../data/mcpServers';

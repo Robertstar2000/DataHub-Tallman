@@ -33,8 +33,9 @@ function getOrCreateWorker(): Worker | null {
             if (pendingRequests.has(id)) {
                 const { resolve, reject } = pendingRequests.get(id)!;
                 if (error) {
-                    console.error(`DB Worker Error for request ${id}:`, error);
-                    reject(new Error(error));
+                    const errorMessage = error.message || 'An unknown worker error occurred.';
+                    console.error(`DB Worker Error for request ${id} (${e.data.action}):`, errorMessage, error.stack);
+                    reject(new Error(errorMessage));
                 } else {
                     resolve(result);
                 }
@@ -43,9 +44,9 @@ function getOrCreateWorker(): Worker | null {
         };
 
         worker.onerror = (e: ErrorEvent) => {
-            console.error("An error occurred in the DB worker:", e);
+            console.error("A critical, unhandled error occurred in the DB worker script:", e.message, `at ${e.filename}:${e.lineno}`);
             for (const [id, { reject }] of pendingRequests.entries()) {
-                reject(new Error(`Worker error: ${e.message}`));
+                reject(new Error(`Worker script error: ${e.message}`));
                 pendingRequests.delete(id);
             }
         };

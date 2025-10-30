@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
@@ -36,8 +37,8 @@ const App: React.FC = () => {
         await initializeDatabase();
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
-        console.error("Failed to initialize database:", errorMessage, err);
-        setDbError(`Could not load the database. Some features might not work correctly. Error: ${errorMessage}`);
+        console.error("Failed to initialize database:", err);
+        setDbError(`Could not load the database. Some features might not work correctly.\n\nDetails:\n${errorMessage}`);
       } finally {
         setIsDbLoading(false);
       }
@@ -97,9 +98,9 @@ const App: React.FC = () => {
   if (dbError) {
      return (
       <div className="flex h-screen bg-slate-900 text-slate-200 items-center justify-center">
-        <div className="text-center max-w-md p-8 bg-slate-800 rounded-lg">
+        <div className="text-center max-w-2xl w-full p-8 bg-slate-800 rounded-lg">
            <h2 className="text-2xl font-bold text-red-400 mb-4">Initialization Failed</h2>
-          <p className="text-slate-300">{dbError}</p>
+          <pre className="text-slate-300 text-left whitespace-pre-wrap font-mono bg-slate-900 p-4 rounded-md overflow-x-auto">{dbError}</pre>
         </div>
       </div>
     );

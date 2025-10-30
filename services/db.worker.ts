@@ -129,6 +129,9 @@ self.onmessage = async (e: MessageEvent) => {
         }
         self.postMessage({ id, result });
     } catch (error: any) {
-        self.postMessage({ id, error: error.message, action });
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        // Post a structured error object
+        self.postMessage({ id, error: { message: errorMessage, stack: errorStack }, action });
     }
 };
