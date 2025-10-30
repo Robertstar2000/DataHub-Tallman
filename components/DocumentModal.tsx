@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import Card from './Card';
 import { MarkdownRenderer } from './MarkdownRenderer';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface DocumentModalProps {
   show: boolean;
@@ -28,6 +30,8 @@ const DocumentModal: React.FC<DocumentModalProps> = ({ show, onClose }) => {
   const [content, setContent] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(modalRef, show);
 
   useEffect(() => {
     if (show) {
@@ -69,11 +73,15 @@ const DocumentModal: React.FC<DocumentModalProps> = ({ show, onClose }) => {
       onClick={onClose}
     >
       <Card 
+        ref={modalRef}
         className="max-w-6xl w-full h-[90vh] flex flex-col"
         onClick={e => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="doc-modal-title"
       >
         <div className="flex-none flex justify-between items-center mb-4">
-            <h1 className="text-2xl font-bold text-white">Platform Documentation</h1>
+            <h1 id="doc-modal-title" className="text-2xl font-bold text-white">Platform Documentation</h1>
             <button 
                 onClick={onClose}
                 className="w-8 h-8 rounded-full bg-slate-700 hover:bg-slate-600 flex items-center justify-center text-white font-bold"
@@ -87,17 +95,18 @@ const DocumentModal: React.FC<DocumentModalProps> = ({ show, onClose }) => {
             <div className="lg:col-span-1 flex flex-col bg-slate-900/50 rounded-lg p-2">
                 <ul className="flex-grow overflow-y-auto space-y-1">
                     {documents.map(doc => (
-                    <li
-                        key={doc.key}
-                        onClick={() => setSelectedDocKey(doc.key)}
-                        className={`p-3 rounded-lg cursor-pointer transition-colors ${
-                        selectedDocKey === doc.key
-                            ? 'bg-cyan-500/20 text-cyan-400'
-                            : 'hover:bg-slate-700/50 text-slate-300'
-                        }`}
-                    >
-                        <h3 className="font-semibold">{doc.title}</h3>
-                        <p className="text-sm text-slate-400">{doc.description}</p>
+                    <li key={doc.key}>
+                        <button
+                            onClick={() => setSelectedDocKey(doc.key)}
+                            className={`w-full text-left p-3 rounded-lg cursor-pointer transition-colors ${
+                            selectedDocKey === doc.key
+                                ? 'bg-cyan-500/20 text-cyan-400'
+                                : 'hover:bg-slate-700/50 text-slate-300'
+                            }`}
+                        >
+                            <h3 className="font-semibold">{doc.title}</h3>
+                            <p className="text-sm text-slate-400">{doc.description}</p>
+                        </button>
                     </li>
                     ))}
                 </ul>

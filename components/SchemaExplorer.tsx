@@ -1,8 +1,11 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import Card from './Card';
 import { getTableSchemas, getLoadedMcpServers, createTableFromMcp, getWorkflows, getDashboards } from '../services/api';
 import type { McpServer, Workflow, Dashboard } from '../types';
+import { useQuery, invalidateQuery } from '../hooks/useQuery';
+import { useFocusTrap } from '../hooks/useFocusTrap';
+import Button from './common/Button';
 
 interface SchemaField {
   name: string;
@@ -102,14 +105,17 @@ const LineageView: React.FC<{ tableName: string; mcpSource: string | null; allWo
 
 const AddTableModal: React.FC<{
     mcpServers: McpServer[];
+    isOpen: boolean;
     onClose: () => void;
     onAdd: (tableName: string, columns: string, mcpSource: string) => Promise<void>;
-}> = ({ mcpServers, onClose, onAdd }) => {
+}> = ({ mcpServers, isOpen, onClose, onAdd }) => {
     const [tableName, setTableName] = useState('');
     const [columns, setColumns] = useState('');
     const [mcpSource, setMcpSource] = useState(mcpServers[0]?.name || '');
     const [isAdding, setIsAdding] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const modalRef = useRef<HTMLDivElement>(null);
+    useFocusTrap(modalRef, isOpen);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -128,10 +134,21 @@ const AddTableModal: React.FC<{
             setIsAdding(false);
         }
     };
+    
+    useEffect(() => {
+        if (isOpen) {
+            setTableName('');
+            setColumns('');
+            setError(null);
+            setMcpSource(mcpServers[0]?.name || '');
+        }
+    }, [isOpen, mcpServers]);
+
+    if (!isOpen) return null;
 
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
-            <Card className="max-w-lg w-full" onClick={e => e.stopPropagation()}>
+            <Card ref={modalRef} className="max-w-lg w-full" onClick={e => e.stopPropagation()}>
                 <h2 className="text-2xl font-bold text-white mb-4">Extract Table from MCP</h2>
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
@@ -158,10 +175,10 @@ const AddTableModal: React.FC<{
                     </div>
                     {error && <p className="text-sm text-red-400 bg-red-500/10 p-2 rounded-md">{error}</p>}
                     <div className="flex justify-end gap-4 pt-4">
-                        <button type="button" onClick={onClose} disabled={isAdding} className="bg-slate-600 text-white font-semibold px-6 py-2 rounded-lg hover:bg-slate-500">Cancel</button>
-                        <button type="submit" disabled={isAdding} className="bg-cyan-500 text-white font-semibold px-6 py-2 rounded-lg hover:bg-cyan-600 disabled:bg-slate-500">
+                        <Button type="button" variant="secondary" onClick={onClose} disabled={isAdding}>Cancel</Button>
+                        <Button type="submit" variant="primary" disabled={isAdding}>
                             {isAdding ? 'Adding...' : 'Add Table'}
-                        </button>
+                        </Button>
                     </div>
                 </form>
             </Card>
@@ -196,64 +213,44 @@ const SchemaDetailSkeleton: React.FC = () => (
 );
 
 const SchemaExplorer: React.FC = () => {
-  const [schemas, setSchemas] = useState<Schema[]>([]);
-  const [allWorkflows, setAllWorkflows] = useState<Workflow[]>([]);
-  const [allDashboards, setAllDashboards] = useState<Dashboard[]>([]);
-  const [loadedMcps, setLoadedMcps] = useState<McpServer[]>([]);
-  const [categories, setCategories] = useState<string[]>([]);
+  const { data: dbSchemas, isLoading: isLoadingSchemas } = useQuery(['tableSchemas'], getTableSchemas);
+  const { data: loadedMcps = [] } = useQuery(['loadedMcpServers'], getLoadedMcpServers);
+  const { data: allWorkflows = [] } = useQuery(['workflows'], getWorkflows);
+  const { data: allDashboards = [] } = useQuery(['dashboards'], getDashboards);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedSchema, setSelectedSchema] = useState<Schema | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'details' | 'lineage'>('details');
   
-  const loadData = async () => {
-      setIsLoading(true);
-      try {
-        const [dbSchemas, mcps, workflows, dashboards] = await Promise.all([
-            getTableSchemas(), 
-            getLoadedMcpServers(),
-            getWorkflows(),
-            getDashboards()
-        ]);
-        
-        setLoadedMcps(mcps);
-        setAllWorkflows(workflows);
-        setAllDashboards(dashboards);
-        
-        const processedSchemas = Object.entries(dbSchemas).map(([tableName, { columns, mcpSource }]) => ({
-            id: tableName,
-            name: tableName,
-            category: getCategoryForTable(tableName),
-            fields: parseSchemaString(columns),
-            mcpSource: mcpSource
-        }));
-        
-        setSchemas(processedSchemas);
-        const uniqueCategories = [...new Set(processedSchemas.map(s => s.category))].sort();
-        setCategories(uniqueCategories);
+  const schemas = useMemo<Schema[]>(() => {
+    if (!dbSchemas) return [];
+    return Object.entries(dbSchemas).map(([tableName, { columns, mcpSource }]) => ({
+        id: tableName,
+        name: tableName,
+        category: getCategoryForTable(tableName),
+        fields: parseSchemaString(columns),
+        mcpSource: mcpSource
+    }));
+  }, [dbSchemas]);
 
-        if(!selectedSchema && processedSchemas.length > 0) {
-            setSelectedSchema(processedSchemas[0]);
-        } else if (selectedSchema) {
-            const updatedSelection = processedSchemas.find(s => s.id === selectedSchema.id) || processedSchemas[0] || null;
-            setSelectedSchema(updatedSelection);
-        }
-      } catch (e) {
-        console.error("Failed to load schemas", e);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
+  const categories = useMemo(() => {
+    return [...new Set(schemas.map(s => s.category))].sort();
+  }, [schemas]);
+  
   useEffect(() => {
-    loadData();
-  }, []);
+      if(!selectedSchema && schemas.length > 0) {
+          setSelectedSchema(schemas[0]);
+      } else if (selectedSchema) {
+          const updatedSelection = schemas.find(s => s.id === selectedSchema.id) || schemas[0] || null;
+          setSelectedSchema(updatedSelection);
+      }
+  }, [schemas, selectedSchema]);
 
   const handleAddTable = async (tableName: string, columns: string, mcpSource: string) => {
     await createTableFromMcp({ tableName, columns, mcpSource });
-    await loadData(); // Refresh all data
+    invalidateQuery(['tableSchemas']);
   };
 
   const filteredSchemas = useMemo(() => {
@@ -265,6 +262,8 @@ const SchemaExplorer: React.FC = () => {
     });
   }, [schemas, searchTerm, selectedCategory]);
 
+  const isLoading = isLoadingSchemas;
+
   return (
     <div className="space-y-6 h-full flex flex-col">
       <div className="flex justify-between items-center">
@@ -274,14 +273,13 @@ const SchemaExplorer: React.FC = () => {
                 Explore the live database schema, track data lineage to its source MCP, and simulate new table ingestions.
             </p>
         </div>
-        <button
+        <Button
             onClick={() => setIsModalOpen(true)}
             disabled={loadedMcps.length === 0}
-            className="bg-cyan-500 text-white font-semibold px-4 py-2 rounded-lg hover:bg-cyan-600 disabled:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
             title={loadedMcps.length === 0 ? "Load an MCP in the MCP tab first" : "Extract a new table from a connected MCP"}
         >
             + Extract Table from MCP
-        </button>
+        </Button>
       </div>
       <div className="flex-grow grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-0">
         <Card className="lg:col-span-1 flex flex-col">
@@ -389,7 +387,12 @@ const SchemaExplorer: React.FC = () => {
           </div>
         </Card>
       </div>
-      {isModalOpen && <AddTableModal mcpServers={loadedMcps} onClose={() => setIsModalOpen(false)} onAdd={handleAddTable} />}
+      <AddTableModal 
+        mcpServers={loadedMcps}
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onAdd={handleAddTable}
+      />
     </div>
   );
 };

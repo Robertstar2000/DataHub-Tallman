@@ -16,28 +16,22 @@ const NavItem: React.FC<{
   children: React.ReactNode;
 }> = ({ viewName, label, currentView, setCurrentView, children }) => {
   const isActive = currentView === viewName;
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      setCurrentView(viewName);
-    }
-  };
 
   return (
-    <li
-      onClick={() => setCurrentView(viewName)}
-      onKeyDown={handleKeyDown}
-      role="button"
-      tabIndex={0}
-      aria-label={`Navigate to ${label}`}
-      aria-current={isActive ? 'page' : undefined}
-      className={`flex items-center p-3 my-1 rounded-lg cursor-pointer transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-cyan-500 ${
-        isActive
-          ? 'bg-cyan-500/20 text-cyan-400'
-          : 'hover:bg-slate-700/50 text-slate-400 hover:text-slate-200'
-      }`}
-    >
-      <span className="w-6 h-6 mr-3">{children}</span>
-      <span className="font-medium">{label}</span>
+    <li>
+      <button
+        onClick={() => setCurrentView(viewName)}
+        role="menuitem"
+        aria-current={isActive ? 'page' : undefined}
+        className={`w-full flex items-center p-3 my-1 rounded-lg text-left cursor-pointer transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-cyan-500 ${
+          isActive
+            ? 'bg-cyan-500/20 text-cyan-400'
+            : 'hover:bg-slate-700/50 text-slate-400 hover:text-slate-200'
+        }`}
+      >
+        <span className="w-6 h-6 mr-3 flex-shrink-0">{children}</span>
+        <span className="font-medium">{label}</span>
+      </button>
     </li>
   );
 };
@@ -51,10 +45,10 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, onOpenDo
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4M4 7l8 5 8-5" />
           </svg>
         </div>
-        <h1 className="text-xl font-bold text-white">Cloud Data Hub</h1>
+        <h1 className="text-xl font-bold text-white">Central Data Hub</h1>
       </div>
       <nav className="flex-grow overflow-y-auto pr-2 -mr-2">
-        <ul>
+        <ul role="menu">
           {/* Core Views */}
           <NavItem viewName="dashboard" label="Hub Status Board" currentView={currentView} setCurrentView={setCurrentView}>
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" /></svg>
@@ -117,18 +111,18 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, onOpenDo
 
           {/* Resources */}
           <li className="px-3 pt-2 pb-1 text-xs font-semibold text-slate-500 uppercase tracking-wider">Resources</li>
-          <li
+          <li>
+            <button
               onClick={onOpenDocModal}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onOpenDocModal(); }}
-              role="button"
-              tabIndex={0}
+              role="menuitem"
               aria-label="Open documents viewer"
-              className="flex items-center p-3 my-1 rounded-lg cursor-pointer transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-cyan-500 hover:bg-slate-700/50 text-slate-400 hover:text-slate-200"
+              className="w-full flex items-center p-3 my-1 rounded-lg text-left cursor-pointer transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-cyan-500 hover:bg-slate-700/50 text-slate-400 hover:text-slate-200"
             >
-              <span className="w-6 h-6 mr-3">
+              <span className="w-6 h-6 mr-3 flex-shrink-0">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
               </span>
               <span className="font-medium">Documents</span>
+            </button>
             </li>
         </ul>
       </nav>

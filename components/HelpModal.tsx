@@ -1,7 +1,8 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Card from './Card';
 import { MarkdownRenderer } from './MarkdownRenderer';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface HelpModalProps {
   show: boolean;
@@ -11,6 +12,8 @@ interface HelpModalProps {
 const HelpModal: React.FC<HelpModalProps> = ({ show, onClose }) => {
   const [content, setContent] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const modalRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(modalRef, show);
 
   useEffect(() => {
     if (show) {
@@ -40,11 +43,15 @@ const HelpModal: React.FC<HelpModalProps> = ({ show, onClose }) => {
       onClick={onClose}
     >
       <Card 
+        ref={modalRef}
         className="max-w-4xl w-full h-[90vh] flex flex-col"
         onClick={e => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="help-modal-title"
       >
         <div className="flex-none flex justify-between items-center mb-4">
-            <h1 className="text-2xl font-bold text-white">Help & User Guide</h1>
+            <h1 id="help-modal-title" className="text-2xl font-bold text-white">Help & User Guide</h1>
             <button 
                 onClick={onClose}
                 className="w-8 h-8 rounded-full bg-slate-700 hover:bg-slate-600 flex items-center justify-center text-white font-bold"

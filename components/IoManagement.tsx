@@ -1,11 +1,11 @@
 
-
 import React, { useState, useEffect, useRef } from 'react';
 import Card from './Card';
 import { getLoadedMcpServers } from '../services/api';
 import type { McpServer, OtherInterface } from '../types';
 import { mcpFunctions } from '../data/mcpFunctions';
 import { otherInterfaces, interfaceIcons } from '../data/mcpServers';
+import { useQuery } from '../hooks/useQuery';
 
 // Mock data and types
 type QueryFrequency = 'real-time' | '5m' | '1h' | 'daily';
@@ -30,7 +30,7 @@ const getRandomInt = (min: number, max: number) => Math.floor(Math.random() * (m
 const getRandomElement = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
 
 const generateMockLog = (mcpName: string, type: 'uploads' | 'downloads'): { log: IoLog; functionName: string } => {
-    const templateKey = Object.keys(mcpFunctions).find(key => mcpName.includes(key)) || 'Default';
+    const templateKey = Object.keys(mcpFunctions).find(key => mcpName.toLowerCase().includes(key.toLowerCase())) || 'Default';
     const availableFunctions = mcpFunctions[templateKey][type];
     const selectedFunction = getRandomElement(availableFunctions);
     
@@ -77,7 +77,7 @@ const InterfaceList: React.FC = () => (
 
 
 const IoManagement: React.FC = () => {
-    const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+    const { data: mcpServers = [] } = useQuery<McpServer[]>(['loadedMcpServers'], getLoadedMcpServers);
     const [selectedMcpId, setSelectedMcpId] = useState<string | null>(null);
     const [highlightedFunction, setHighlightedFunction] = useState<{ type: 'uploads' | 'downloads', name: string } | null>(null);
     
@@ -88,30 +88,28 @@ const IoManagement: React.FC = () => {
     const highlightTimeoutRef = useRef<number | null>(null);
 
     useEffect(() => {
-        const loadServers = async () => {
-            const loadedServers = await getLoadedMcpServers();
-            setMcpServers(loadedServers);
-            if (loadedServers.length > 0) {
-                setSelectedMcpId(loadedServers[0].id);
-                // Initialize configs and logs for fetched servers
-                setConfigs(prev => {
-                    const newConfigs = {...prev};
-                    loadedServers.forEach(s => {
-                        if (!newConfigs[s.id]) newConfigs[s.id] = { queryFrequency: '5m' };
-                    });
-                    return newConfigs;
-                });
-                setLogs(prev => {
-                    const newLogs = {...prev};
-                    loadedServers.forEach(s => {
-                        if (!newLogs[s.id]) newLogs[s.id] = { uploads: [], downloads: [] };
-                    });
-                    return newLogs;
-                });
-            }
-        };
-        loadServers();
-    }, []);
+        if (mcpServers.length > 0 && !selectedMcpId) {
+            setSelectedMcpId(mcpServers[0].id);
+        }
+    }, [mcpServers, selectedMcpId]);
+
+    // Initialize configs and logs when servers are loaded
+    useEffect(() => {
+        setConfigs(prev => {
+            const newConfigs = {...prev};
+            mcpServers.forEach(s => {
+                if (!newConfigs[s.id]) newConfigs[s.id] = { queryFrequency: '5m' };
+            });
+            return newConfigs;
+        });
+        setLogs(prev => {
+            const newLogs = {...prev};
+            mcpServers.forEach(s => {
+                if (!newLogs[s.id]) newLogs[s.id] = { uploads: [], downloads: [] };
+            });
+            return newLogs;
+        });
+    }, [mcpServers]);
 
     useEffect(() => {
         if (intervalRef.current) clearInterval(intervalRef.current);
@@ -249,7 +247,7 @@ const FunctionList: React.FC<{
     type: 'uploads' | 'downloads';
     highlightedFunction: { type: 'uploads' | 'downloads'; name: string } | null;
 }> = ({ title, mcpName, type, highlightedFunction }) => {
-    const templateKey = Object.keys(mcpFunctions).find(key => mcpName.includes(key)) || 'Default';
+    const templateKey = Object.keys(mcpFunctions).find(key => mcpName.toLowerCase().includes(key.toLowerCase())) || 'Default';
     const functions = mcpFunctions[templateKey][type];
 
     return (

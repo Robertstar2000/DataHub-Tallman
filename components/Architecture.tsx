@@ -5,6 +5,7 @@ import type { View } from '../App';
 import { getWorkflows, saveWorkflow, getDashboards } from '../services/api';
 import type { Workflow, Dashboard } from '../types';
 import { schemaMetadata } from '../data/schemaMetadata';
+import { useQuery } from '../hooks/useQuery';
 
 
 // Define types for our diagram components
@@ -86,45 +87,30 @@ export default function transform(data) {
 };
 
 const Architecture: React.FC<ArchitectureProps> = ({ setCurrentView }) => {
-  const [workflows, setWorkflows] = useState<Workflow[]>([]);
-  const [dashboards, setDashboards] = useState<Dashboard[]>([]);
+  const { data: workflows = [], refetch: refetchWorkflows } = useQuery<Workflow[]>(['workflows'], getWorkflows);
+  const { data: dashboards = [], isLoading: isLoadingDashboards } = useQuery<Dashboard[]>(['dashboards'], getDashboards);
+
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(null);
   const [workflowScripts, setWorkflowScripts] = useState<Record<string, string>>({});
-  const [isLoading, setIsLoading] = useState(true);
   const saveTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const loadData = async () => {
-        setIsLoading(true);
-        try {
-            const [fetchedWorkflows, fetchedDashboards] = await Promise.all([
-                getWorkflows(),
-                getDashboards()
-            ]);
-            setWorkflows(fetchedWorkflows);
-            setDashboards(fetchedDashboards);
-
-            if (fetchedWorkflows.length > 0) {
-                const initialId = fetchedWorkflows[0].id;
-                setSelectedWorkflowId(initialId);
-                const initialScripts = fetchedWorkflows.reduce((acc, wf) => {
-                    if (wf.transformer === 'Custom JavaScript') {
-                        acc[wf.id] = wf.transformerCode || generateDefaultScript(wf);
-                    } else {
-                        acc[wf.id] = `// This workflow uses the '${wf.transformer}' transformer.\n// Code is not editable for this type.`;
-                    }
-                    return acc;
-                }, {} as Record<string, string>);
-                setWorkflowScripts(initialScripts);
-            }
-        } catch (e) {
-            console.error("Failed to load architecture data", e);
-        } finally {
-            setIsLoading(false);
+    if (workflows.length > 0) {
+      if (!selectedWorkflowId || !workflows.some(wf => wf.id === selectedWorkflowId)) {
+        setSelectedWorkflowId(workflows[0].id);
+      }
+      const initialScripts = workflows.reduce((acc, wf) => {
+        if (wf.transformer === 'Custom JavaScript') {
+            acc[wf.id] = wf.transformerCode || generateDefaultScript(wf);
+        } else {
+            acc[wf.id] = `// This workflow uses the '${wf.transformer}' transformer.\n// Code is not editable for this type.`;
         }
-    };
-    loadData();
-  }, []);
+        return acc;
+      }, {} as Record<string, string>);
+      setWorkflowScripts(initialScripts);
+    }
+  }, [workflows, selectedWorkflowId]);
+
   
   const handleScriptChange = (workflowId: string, newCode: string) => {
     setWorkflowScripts(prev => ({...prev, [workflowId]: newCode}));
@@ -135,7 +121,7 @@ const Architecture: React.FC<ArchitectureProps> = ({ setCurrentView }) => {
         if (workflowToUpdate && workflowToUpdate.transformer === 'Custom JavaScript') {
             const updatedWorkflow = { ...workflowToUpdate, transformerCode: newCode };
             saveWorkflow(updatedWorkflow, false)
-                .then(() => setWorkflows(prev => prev.map(wf => wf.id === workflowId ? updatedWorkflow : wf)))
+                .then(() => refetchWorkflows())
                 .catch(e => console.error("Failed to save script", e));
         }
     }, 500);
@@ -169,7 +155,7 @@ const Architecture: React.FC<ArchitectureProps> = ({ setCurrentView }) => {
   }, [selectedWorkflow]);
 
   const consumptionInfo = useMemo(() => {
-    if (!selectedWorkflow) return [];
+    if (!selectedWorkflow || !workflows || !dashboards) return [];
 
     const consumers: { name: string; type: keyof typeof detailIcons; targetView?: View }[] = [];
 
@@ -220,7 +206,7 @@ const Architecture: React.FC<ArchitectureProps> = ({ setCurrentView }) => {
             <Arrow isPlaceholder />
 
             <DiagramCard title="Processing Pipeline" className="w-1/3 h-full !flex flex-col" onClick={() => setCurrentView('workflow-builder')}>
-              {isLoading ? <p>Loading workflows...</p> : (
+              {workflows.length === 0 ? <p>Loading workflows...</p> : (
                 <>
                   <div className="flex-none flex flex-col mb-2">
                       <label htmlFor="workflow-select" className="text-sm text-slate-400 mb-1 text-left">Selected Workflow:</label>

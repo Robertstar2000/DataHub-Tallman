@@ -1,9 +1,11 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import Card from './Card';
 import { getDashboardStats, getLoadedMcpServers } from '../services/api';
 import type { WorkflowStatus, McpServer } from '../types';
 import type { View } from '../App';
+import { useQuery, invalidateQuery } from '../hooks/useQuery';
+import Button from './common/Button';
 
 interface StatusData {
   mcpCount: number;
@@ -60,10 +62,10 @@ const DashboardSkeleton: React.FC = () => (
 
 
 const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
-  const [statusData, setStatusData] = useState<StatusData | null>(null);
-  const [loadedMcps, setLoadedMcps] = useState<McpServer[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
+
+  const { data: statusData, isLoading: isStatsLoading, refetch: refetchStats } = useQuery<StatusData>(['dashboardStats'], getDashboardStats);
+  const { data: loadedMcps, isLoading: isMcpsLoading, refetch: refetchMcps } = useQuery<McpServer[]>(['loadedMcpServers'], getLoadedMcpServers);
 
   const mockAnomalies: Omit<Anomaly, 'id' | 'timestamp'>[] = [
       { metric: 'P21 Order Ingestion', change: '-45% vs. 7-day avg', severity: 'Critical' },
@@ -86,34 +88,13 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
     return () => clearInterval(anomalyInterval);
   }, []);
 
-  const fetchData = useCallback(async () => {
-    setIsLoading(true);
-    try {
-        const stats = await getDashboardStats();
-        const mcpServers = await getLoadedMcpServers();
-        setLoadedMcps(mcpServers);
-
-        setStatusData({
-            mcpCount: stats.mcpCount,
-            workflowCounts: stats.workflowCounts as Record<WorkflowStatus, number>,
-            dbStats: stats.dbStats,
-            vectorStats: stats.vectorStats,
-        });
-    } catch(e) {
-        console.error("Failed to fetch dashboard data", e)
-    } finally {
-        setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
   const handleRefresh = () => {
-    fetchData();
+    refetchStats();
+    refetchMcps();
   };
   
+  const isLoading = isStatsLoading || isMcpsLoading;
+
   const StatCard: React.FC<{title: string, value: string | number, icon: React.ReactNode, tooltipText: string}> = ({ title, value, icon, tooltipText }) => (
     <div className="relative group">
       <Card>
@@ -155,13 +136,15 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-white">Hub Status Board</h1>
-        <button
+        <Button
+          variant="secondary"
           onClick={handleRefresh}
-          className="flex items-center gap-2 bg-slate-700 text-white font-semibold px-4 py-2 rounded-lg hover:bg-slate-600 transition-colors"
+          disabled={isLoading}
+          className="flex items-center gap-2"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${isLoading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M20 20v-5h-5M4 4l1.5 1.5A9 9 0 0120.5 10.5M20 20l-1.5-1.5A9 9 0 003.5 13.5" /></svg>
           {isLoading ? 'Refreshing...' : 'Refresh Status'}
-        </button>
+        </Button>
       </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -242,7 +225,7 @@ const Dashboard: React.FC<DashboardProps> = ({ setCurrentView }) => {
             <LinkArrow />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {loadedMcps.map(server => (
+            {(loadedMcps || []).map(server => (
                 <div key={server.id} className="p-3 bg-slate-900/50 rounded-lg">
                     <div className="flex items-center mb-1">
                         <span className="w-2 h-2 rounded-full bg-green-500 mr-2 animate-pulse"></span>

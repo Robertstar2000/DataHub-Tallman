@@ -1,8 +1,5 @@
 
-
-
-
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import Architecture from './components/Architecture';
@@ -23,36 +20,20 @@ import PredictiveAnalytics from './components/PredictiveAnalytics';
 import DataGovernance from './components/DataGovernance';
 import AuditLog from './components/AuditLog';
 import DocumentModal from './components/DocumentModal';
+import { useQuery } from './hooks/useQuery';
 
 export type View = 'dashboard' | 'architecture' | 'explorer' | 'ai-analyst' | 'schema-explorer' | 'dashboard-builder' | 'workflow-builder' | 'dl-controls' | 'db-maintenance' | 'mcp-protocol' | 'io-management' | 'predictive-analytics' | 'data-governance' | 'audit-log';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<View>('dashboard');
-  const [isDbLoading, setIsDbLoading] = useState(true);
-  const [dbError, setDbError] = useState<string | null>(null);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isDocModalOpen, setIsDocModalOpen] = useState(false);
 
-  useEffect(() => {
-    const init = async () => {
-      try {
-        await initializeDatabase();
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : String(err);
-        const errorStack = err instanceof Error ? err.stack : 'No stack trace available.';
-        console.error("Failed to initialize database:", err);
-
-        let fullError = `Details:\n${errorMessage}`;
-        if(errorStack) {
-            fullError += `\n\nStack Trace:\n${errorStack}`;
-        }
-        setDbError(`Could not load the database. Some features might not work correctly.\n\n${fullError}`);
-      } finally {
-        setIsDbLoading(false);
-      }
-    };
-    init();
-  }, []);
+  const { isLoading: isDbLoading, error: dbError } = useQuery(
+    ['initializeDatabase'],
+    () => initializeDatabase(),
+    { staleTime: Infinity } // This should only run once
+  );
 
   const renderContent = () => {
     switch (currentView) {
@@ -108,7 +89,7 @@ const App: React.FC = () => {
       <div className="flex h-screen bg-slate-900 text-slate-200 items-center justify-center">
         <div className="text-center max-w-2xl w-full p-8 bg-slate-800 rounded-lg">
            <h2 className="text-2xl font-bold text-red-400 mb-4">Initialization Failed</h2>
-          <pre className="text-slate-300 text-left whitespace-pre-wrap font-mono bg-slate-900 p-4 rounded-md overflow-x-auto">{dbError}</pre>
+          <pre className="text-slate-300 text-left whitespace-pre-wrap font-mono bg-slate-900 p-4 rounded-md overflow-x-auto">{dbError.stack}</pre>
         </div>
       </div>
     );

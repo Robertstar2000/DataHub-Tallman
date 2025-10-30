@@ -1,8 +1,11 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Card from './Card';
 import { getMcpServers, saveMcpServer } from '../services/api';
 import type { McpServer, McpServerType } from '../types';
+import { useQuery, invalidateQuery } from '../hooks/useQuery';
+import { useFocusTrap } from '../hooks/useFocusTrap';
+import Button from './common/Button';
 
 const generateMcpCode = (server: McpServer): string => {
     let endpoints = [];
@@ -52,7 +55,7 @@ const generateMcpCode = (server: McpServer): string => {
     return JSON.stringify(config, null, 2);
 };
 
-const AddServerWizard: React.FC<{ onClose: () => void, onAdd: (server: Omit<McpServer, 'id' | 'isLoaded'>) => void }> = ({ onClose, onAdd }) => {
+const AddServerWizard: React.FC<{ isOpen: boolean, onClose: () => void, onAdd: (server: Omit<McpServer, 'id' | 'isLoaded'>) => void }> = ({ isOpen, onClose, onAdd }) => {
     const [step, setStep] = useState(1);
     const [serverData, setServerData] = useState<Partial<Omit<McpServer, 'id'|'isLoaded'>>>({
         name: '',
@@ -60,6 +63,15 @@ const AddServerWizard: React.FC<{ onClose: () => void, onAdd: (server: Omit<McpS
         description: '',
         type: 'Custom',
     });
+    const modalRef = useRef<HTMLDivElement>(null);
+    useFocusTrap(modalRef, isOpen);
+
+    useEffect(() => {
+        if(isOpen) {
+            setStep(1);
+            setServerData({ name: '', url: 'mcp://', description: '', type: 'Custom' });
+        }
+    }, [isOpen]);
 
     const handleNext = () => setStep(s => s + 1);
     const handleBack = () => setStep(s => s - 1);
@@ -76,9 +88,11 @@ const AddServerWizard: React.FC<{ onClose: () => void, onAdd: (server: Omit<McpS
         onAdd(serverData as Omit<McpServer, 'id'|'isLoaded'>);
     };
 
+    if (!isOpen) return null;
+
     return (
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
-        <Card className="max-w-xl w-full" onClick={e => e.stopPropagation()}>
+        <Card ref={modalRef} className="max-w-xl w-full" onClick={e => e.stopPropagation()}>
           <h2 className="text-2xl font-bold text-white mb-4">New Custom MCP Wizard</h2>
           
           {step === 1 && (
@@ -112,29 +126,29 @@ const AddServerWizard: React.FC<{ onClose: () => void, onAdd: (server: Omit<McpS
                           placeholder="Click to generate"
                           className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-2 text-cyan-300 font-mono" 
                       />
-                       <button 
+                       <Button 
                             type="button"
+                            variant="secondary"
                             onClick={() => setServerData(prev => ({...prev, webhookUrl: `https://in.cloudatahub.io/${Date.now()}`}))}
-                            className="mt-2 text-sm bg-slate-600 hover:bg-slate-500 text-white font-semibold py-1 px-3 rounded-lg"
+                            className="mt-2 text-sm py-1 px-3"
                         >
                             Generate URL
-                        </button>
+                        </Button>
                   </div>
               </div>
           )}
           
           <div className="flex justify-between mt-6">
             <div>
-              {step > 1 && <button onClick={handleBack} className="bg-slate-600 btn">Back</button>}
+              {step > 1 && <Button variant="secondary" onClick={handleBack}>Back</Button>}
             </div>
             <div className="flex gap-2">
-              <button onClick={onClose} className="bg-slate-600 btn">Cancel</button>
-              {step < 2 && <button onClick={handleNext} className="bg-cyan-500 btn">Next</button>}
-              {step === 2 && <button onClick={handleFinish} className="bg-cyan-500 btn">Finish & Add</button>}
+              <Button variant="secondary" onClick={onClose}>Cancel</Button>
+              {step < 2 && <Button variant="primary" onClick={handleNext}>Next</Button>}
+              {step === 2 && <Button variant="primary" onClick={handleFinish}>Finish & Add</Button>}
             </div>
           </div>
         </Card>
-        <style>{`.btn { @apply text-white font-semibold px-6 py-2 rounded-lg transition-colors; }`}</style>
       </div>
     );
 };
@@ -146,46 +160,43 @@ const MarketplaceCard: React.FC<{ server: McpServer, onInstall: (server: McpServ
             <p className="text-xs font-semibold uppercase text-cyan-400 mb-2">{server.category}</p>
             <p className="text-sm text-slate-400 mb-3">{server.description}</p>
         </div>
-        <button
+        <Button
+            variant="secondary"
             onClick={() => onInstall(server)}
             disabled={server.isInstalled}
-            className="w-full mt-2 px-3 py-1 bg-slate-700 hover:bg-slate-600 text-sm rounded font-semibold text-white disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed"
+            className="w-full mt-2 text-sm"
         >
             {server.isInstalled ? 'Installed' : 'Install'}
-        </button>
+        </Button>
     </div>
 );
 
 
 const McpProtocol: React.FC = () => {
-    const [allServers, setAllServers] = useState<McpServer[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const { data: allServers = [], isLoading, refetch } = useQuery<McpServer[]>(['mcpServers'], getMcpServers);
+    const [allServersState, setAllServersState] = useState<McpServer[]>([]);
+    
     const [activeTab, setActiveTab] = useState<'library' | 'marketplace'>('library');
     const [isWizardOpen, setIsWizardOpen] = useState(false);
 
     useEffect(() => {
-        const loadServers = async () => {
-            setIsLoading(true);
-            const servers = await getMcpServers();
-            setAllServers(servers);
-            setIsLoading(false);
-        };
-        loadServers();
-    }, []);
+        setAllServersState(allServers);
+    }, [allServers]);
 
     const handleInstallMarketplace = async (serverToInstall: McpServer) => {
         const installedServer = { ...serverToInstall, isInstalled: true, type: serverToInstall.category as McpServerType, isLoaded: true };
-        setAllServers(prev => prev.map(s => s.id === installedServer.id ? installedServer : s));
+        setAllServersState(prev => prev.map(s => s.id === installedServer.id ? installedServer : s));
         await saveMcpServer(installedServer);
+        invalidateQuery(['mcpServers']);
     }
     
     const handleToggleLoad = async (server: McpServer) => {
-        const isCurrentlyLoaded = server.isLoaded;
-        const updatedServer = { ...server, isLoaded: !isCurrentlyLoaded };
+        const updatedServer = { ...server, isLoaded: !server.isLoaded };
         
-        setAllServers(allServers.map(s => s.id === server.id ? updatedServer : s));
-        
+        setAllServersState(allServersState.map(s => s.id === server.id ? updatedServer : s));
         await saveMcpServer(updatedServer);
+        invalidateQuery(['mcpServers']);
+        invalidateQuery(['loadedMcpServers']);
     };
 
     const handleAddCustomServer = async (newServerData: Omit<McpServer, 'id'|'isLoaded'>) => {
@@ -194,14 +205,15 @@ const McpProtocol: React.FC = () => {
             id: `custom-${Date.now()}`,
             isLoaded: true,
         };
-        setAllServers([...allServers, newServer]);
+        setAllServersState(prev => [...prev, newServer]);
         await saveMcpServer(newServer);
+        invalidateQuery(['mcpServers']);
         setIsWizardOpen(false);
     };
 
-    const libraryServers = allServers.filter(s => s.type === 'Official' && s.isInstalled);
-    const customServers = allServers.filter(s => s.type === 'Custom');
-    const marketplaceServers = allServers.filter(s => s.type === 'Marketplace');
+    const libraryServers = allServersState.filter(s => s.type === 'Official' && s.isInstalled);
+    const customServers = allServersState.filter(s => s.type === 'Custom');
+    const marketplaceServers = allServersState.filter(s => s.type === 'Marketplace');
 
     return (
         <div className="space-y-6">
@@ -220,7 +232,7 @@ const McpProtocol: React.FC = () => {
                     <Card>
                         <div className="flex justify-between items-center mb-4">
                             <h2 className="text-xl font-bold text-white">Custom Servers</h2>
-                             <button onClick={() => setIsWizardOpen(true)} className="bg-cyan-500 text-white font-semibold px-4 py-1 rounded-lg hover:bg-cyan-600 text-sm">+ New Custom MCP</button>
+                             <Button variant="primary" className="text-sm py-1" onClick={() => setIsWizardOpen(true)}>+ New Custom MCP</Button>
                         </div>
                          <ServerList servers={customServers} onToggleLoad={handleToggleLoad} isLoading={isLoading} />
                     </Card>
@@ -240,7 +252,7 @@ const McpProtocol: React.FC = () => {
                 </Card>
             )}
 
-            {isWizardOpen && <AddServerWizard onClose={() => setIsWizardOpen(false)} onAdd={handleAddCustomServer} />}
+            <AddServerWizard isOpen={isWizardOpen} onClose={() => setIsWizardOpen(false)} onAdd={handleAddCustomServer} />
         </div>
     );
 };
@@ -256,12 +268,13 @@ const ServerList: React.FC<{ servers: McpServer[], onToggleLoad: (s: McpServer) 
                         <p className="text-xs text-slate-400">{server.description}</p>
                         <p className="text-xs text-cyan-400 font-mono mt-1">{server.url}</p>
                     </div>
-                     <button 
+                     <Button 
+                        variant={server.isLoaded ? 'danger' : 'primary'}
                         onClick={() => onToggleLoad(server)}
-                        className={`px-3 py-1 text-sm rounded font-semibold text-white whitespace-nowrap ${server.isLoaded ? 'bg-red-800/80 hover:bg-red-700' : 'bg-cyan-500 hover:bg-cyan-600'}`}
+                        className="px-3 py-1 text-sm whitespace-nowrap"
                     >
                         {server.isLoaded ? 'Unload' : 'Load'}
-                    </button>
+                    </Button>
                 </div>
             </div>
         )) : <p className="text-center text-slate-500 py-4 text-sm">No servers in this category.</p>}

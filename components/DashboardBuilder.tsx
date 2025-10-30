@@ -4,6 +4,9 @@ import Card from './Card';
 import type { Dashboard, WidgetConfig, ChartType } from '../types';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { executeQuery, getDashboards, saveDashboard, deleteDashboard as apiDeleteDashboard } from '../services/api';
+import { useQuery, invalidateQuery } from '../hooks/useQuery';
+import { useFocusTrap } from '../hooks/useFocusTrap';
+import Button from './common/Button';
 
 const CHART_TYPES: ChartType[] = ['Metric', 'Bar', 'Line', 'Pie'];
 const COLORS = ['#06b6d4', '#818cf8', '#f87171', '#fbbf24', '#a3e635', '#f472b6'];
@@ -95,7 +98,9 @@ const Widget: React.FC<{
 
 
 const DashboardBuilder: React.FC = () => {
-    const [dashboards, setDashboards] = useState<Dashboard[]>([]);
+    const { data: dashboards = [], refetch: refetchDashboards } = useQuery<Dashboard[]>(['dashboards'], getDashboards);
+    
+    const [dashboardsState, setDashboardsState] = useState<Dashboard[]>([]);
     const [activeDashboardId, setActiveDashboardId] = useState<string | null>(null);
     const [isEditing, setIsEditing] = useState(false);
     const [isWidgetModalOpen, setIsWidgetModalOpen] = useState(false);
@@ -103,21 +108,13 @@ const DashboardBuilder: React.FC = () => {
     const draggedWidgetId = useRef<string | null>(null);
 
     useEffect(() => {
-        const loadDashboards = async () => {
-            try {
-                const loadedDashboards = await getDashboards();
-                setDashboards(loadedDashboards);
-                if (loadedDashboards.length > 0 && !activeDashboardId) {
-                    setActiveDashboardId(loadedDashboards[0].id);
-                }
-            } catch (error) {
-                console.error("Failed to load dashboards:", error);
-            }
-        };
-        loadDashboards();
-    }, []);
+        setDashboardsState(dashboards);
+        if (dashboards.length > 0 && !activeDashboardId) {
+            setActiveDashboardId(dashboards[0].id);
+        }
+    }, [dashboards, activeDashboardId]);
 
-    const activeDashboard = dashboards.find(d => d.id === activeDashboardId);
+    const activeDashboard = dashboardsState.find(d => d.id === activeDashboardId);
     
     useEffect(() => {
         if (!activeDashboard) {
@@ -183,9 +180,9 @@ const DashboardBuilder: React.FC = () => {
     
 
     const updateActiveDashboard = async (updatedDashboard: Dashboard) => {
-        const newDashboards = dashboards.map(d => d.id === updatedDashboard.id ? updatedDashboard : d);
-        setDashboards(newDashboards);
+        setDashboardsState(prev => prev.map(d => d.id === updatedDashboard.id ? updatedDashboard : d));
         await saveDashboard(updatedDashboard);
+        invalidateQuery(['dashboards']);
     }
 
     const handleAddDashboard = async () => {
@@ -197,10 +194,11 @@ const DashboardBuilder: React.FC = () => {
                 description: 'A new dashboard.',
                 widgets: []
             };
-            setDashboards([...dashboards, newDashboard]);
+            setDashboardsState(prev => [...prev, newDashboard]);
             setActiveDashboardId(newDashboard.id);
             setIsEditing(true);
             await saveDashboard(newDashboard);
+            invalidateQuery(['dashboards']);
         }
     }
     
@@ -208,10 +206,11 @@ const DashboardBuilder: React.FC = () => {
         if (!activeDashboard || !window.confirm(`Are you sure you want to delete "${activeDashboard.name}"?`)) return;
         
         await apiDeleteDashboard(activeDashboard.id);
-        const newDashboards = dashboards.filter(d => d.id !== activeDashboard.id);
-        setDashboards(newDashboards);
+        const newDashboards = dashboardsState.filter(d => d.id !== activeDashboard.id);
+        setDashboardsState(newDashboards);
         setActiveDashboardId(newDashboards[0]?.id || null);
         setIsEditing(false);
+        invalidateQuery(['dashboards']);
     }
 
     const handleAddWidget = (config: Omit<WidgetConfig, 'id'>) => {
@@ -263,7 +262,7 @@ const DashboardBuilder: React.FC = () => {
     return (
         <div className="space-y-6 h-full flex flex-col">
             <div className="flex border-b border-slate-700 items-center">
-                {dashboards.map(db => (
+                {dashboardsState.map(db => (
                     <button key={db.id} onClick={() => { setActiveDashboardId(db.id); setIsEditing(false); }} className={`px-4 py-2 -mb-px font-medium text-lg border-b-2 transition-colors duration-200 ${activeDashboardId === db.id ? 'border-cyan-400 text-cyan-400' : 'border-transparent text-slate-400 hover:text-white'}`}>
                         {db.name}
                     </button>
@@ -289,12 +288,12 @@ const DashboardBuilder: React.FC = () => {
                         </div>
                         <div className="space-x-2">
                            {isEditing ? (
-                               <button onClick={() => setIsEditing(false)} className="bg-cyan-500 text-white font-semibold px-4 py-2 rounded-lg hover:bg-cyan-600">Done</button>
+                               <Button variant="primary" onClick={() => setIsEditing(false)}>Done</Button>
                            ) : (
-                                <button onClick={() => setIsEditing(true)} className="bg-slate-700 text-white font-semibold px-4 py-2 rounded-lg hover:bg-slate-600">Edit</button>
+                                <Button variant="secondary" onClick={() => setIsEditing(true)}>Edit</Button>
                            )}
-                           {isEditing && <button onClick={() => setIsWidgetModalOpen(true)} className="bg-slate-700 text-white font-semibold px-4 py-2 rounded-lg hover:bg-slate-600">+ Add Widget</button>}
-                           {isEditing && <button onClick={handleDeleteDashboard} className="bg-red-800/80 text-white font-semibold px-4 py-2 rounded-lg hover:bg-red-700">Delete Dashboard</button>}
+                           {isEditing && <Button variant="secondary" onClick={() => setIsWidgetModalOpen(true)}>+ Add Widget</Button>}
+                           {isEditing && <Button variant="danger" onClick={handleDeleteDashboard}>Delete Dashboard</Button>}
                         </div>
                     </div>
                     
@@ -326,9 +325,9 @@ const DashboardBuilder: React.FC = () => {
                             <div className="flex items-center justify-center h-full border-2 border-dashed border-slate-700 rounded-lg">
                                 <div className="text-center">
                                     <p className="text-slate-400 mb-4">This dashboard is empty.</p>
-                                    <button onClick={() => { setIsEditing(true); setIsWidgetModalOpen(true); }} className="bg-cyan-500 text-white font-semibold px-4 py-2 rounded-lg hover:bg-cyan-600">
+                                    <Button variant="primary" onClick={() => { setIsEditing(true); setIsWidgetModalOpen(true); }}>
                                         + Add Your First Widget
-                                    </button>
+                                    </Button>
                                 </div>
                             </div>
                         )}
@@ -338,19 +337,21 @@ const DashboardBuilder: React.FC = () => {
                  <div className="flex items-center justify-center h-full border-2 border-dashed border-slate-700 rounded-lg">
                     <div className="text-center">
                         <p className="text-slate-400 mb-4">You have no dashboards.</p>
-                        <button onClick={handleAddDashboard} className="bg-cyan-500 text-white font-semibold px-4 py-2 rounded-lg hover:bg-cyan-600">
+                        <Button variant="primary" onClick={handleAddDashboard}>
                             Create Your First Dashboard
-                        </button>
+                        </Button>
                     </div>
                 </div>
             )}
-            {isWidgetModalOpen && <AddWidgetModal onAdd={handleAddWidget} onClose={() => setIsWidgetModalOpen(false)} />}
+            <AddWidgetModal isOpen={isWidgetModalOpen} onAdd={handleAddWidget} onClose={() => setIsWidgetModalOpen(false)} />
         </div>
     );
 };
 
-const AddWidgetModal: React.FC<{onClose: ()=>void, onAdd: (config: Omit<WidgetConfig, 'id'>)=>void}> = ({ onClose, onAdd }) => {
-    
+const AddWidgetModal: React.FC<{isOpen: boolean, onClose: ()=>void, onAdd: (config: Omit<WidgetConfig, 'id'>)=>void}> = ({ isOpen, onClose, onAdd }) => {
+    const modalRef = useRef<HTMLDivElement>(null);
+    useFocusTrap(modalRef, isOpen);
+
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         const formData = new FormData(e.currentTarget);
@@ -362,9 +363,11 @@ const AddWidgetModal: React.FC<{onClose: ()=>void, onAdd: (config: Omit<WidgetCo
         });
     }
 
+    if (!isOpen) return null;
+
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-            <Card className="max-w-lg w-full" onClick={e => e.stopPropagation()}>
+            <Card ref={modalRef} className="max-w-lg w-full" onClick={e => e.stopPropagation()}>
                 <h2 className="text-2xl font-bold text-white mb-4">Add New Widget</h2>
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
@@ -397,8 +400,8 @@ const AddWidgetModal: React.FC<{onClose: ()=>void, onAdd: (config: Omit<WidgetCo
                         </select>
                     </div>
                      <div className="flex gap-2 pt-2">
-                         <button type="submit" className="bg-cyan-500 text-white font-semibold px-4 py-2 rounded-lg hover:bg-cyan-600">Add Widget</button>
-                         <button type="button" onClick={onClose} className="bg-slate-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-slate-500">Cancel</button>
+                         <Button variant="primary" type="submit">Add Widget</Button>
+                         <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
                     </div>
                 </form>
             </Card>

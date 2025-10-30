@@ -1,8 +1,11 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import Card from './Card';
 import { getWorkflows, getUsers, saveUser, deleteUser } from '../services/api';
 import type { WorkflowStatus, Workflow, User, Role } from '../types';
+import { useQuery, invalidateQuery } from '../hooks/useQuery';
+import { useFocusTrap } from '../hooks/useFocusTrap';
+import Button from './common/Button';
 
 interface Policy {
   id: string;
@@ -36,11 +39,14 @@ const ToggleSwitch: React.FC<{ enabled: boolean; onChange: () => void }> = ({ en
 );
 
 const AddUserModal: React.FC<{
+    isOpen: boolean;
     onClose: () => void;
     onAdd: (name: string, email: string) => void;
-}> = ({ onClose, onAdd }) => {
+}> = ({ isOpen, onClose, onAdd }) => {
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
+    const modalRef = useRef<HTMLDivElement>(null);
+    useFocusTrap(modalRef, isOpen);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -48,10 +54,19 @@ const AddUserModal: React.FC<{
             onAdd(name, email);
         }
     };
+    
+    useEffect(() => {
+        if (isOpen) {
+            setName('');
+            setEmail('');
+        }
+    }, [isOpen]);
+
+    if (!isOpen) return null;
 
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
-            <Card className="max-w-md w-full" onClick={e => e.stopPropagation()}>
+            <Card ref={modalRef} className="max-w-md w-full" onClick={e => e.stopPropagation()}>
                 <h2 className="text-2xl font-bold text-white mb-4">Add New User</h2>
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
@@ -79,8 +94,8 @@ const AddUserModal: React.FC<{
                         />
                     </div>
                     <div className="flex justify-end gap-4 pt-4">
-                        <button type="button" onClick={onClose} className="bg-slate-600 text-white font-semibold px-6 py-2 rounded-lg hover:bg-slate-500">Cancel</button>
-                        <button type="submit" className="bg-cyan-500 text-white font-semibold px-6 py-2 rounded-lg hover:bg-cyan-600">Add User</button>
+                        <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+                        <Button variant="primary" type="submit">Add User</Button>
                     </div>
                 </form>
             </Card>
@@ -90,40 +105,31 @@ const AddUserModal: React.FC<{
 
 
 const DlControls: React.FC = () => {
-  const [users, setUsers] = useState<User[]>([]);
+  const { data: users = [], refetch: refetchUsers } = useQuery<User[]>(['users'], getUsers);
+  const [usersState, setUsersState] = useState<User[]>([]);
+
   const [policies, setPolicies] = useState<Policy[]>(mockPolicies);
   const [optimizing, setOptimizing] = useState(false);
-  const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const { data: workflows = [] } = useQuery<Workflow[]>(['workflows'], getWorkflows);
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
 
-  const fetchUsers = async () => {
-      try {
-        const fetchedUsers = await getUsers();
-        setUsers(fetchedUsers);
-      } catch(e) {
-          console.error("Failed to fetch users", e);
-          alert("Could not load user data.");
-      }
-  };
-
   useEffect(() => {
-    getWorkflows().then(setWorkflows);
-    fetchUsers();
-  }, []);
+    setUsersState(users);
+  }, [users]);
+  
 
   const handleRoleChange = async (userId: number, newRole: Role) => {
-    const userToUpdate = users.find(u => u.id === userId);
+    const userToUpdate = usersState.find(u => u.id === userId);
     if (userToUpdate) {
         const updatedUser = { ...userToUpdate, role: newRole };
-        // Optimistic update
-        setUsers(users.map(u => (u.id === userId ? updatedUser : u)));
+        setUsersState(usersState.map(u => (u.id === userId ? updatedUser : u)));
         try {
             await saveUser(updatedUser);
+            invalidateQuery(['users']);
         } catch (e) {
             alert(`Failed to update user role: ${e instanceof Error ? e.message : String(e)}`);
             console.error("Error updating user role:", e);
-            // Revert on failure
-            fetchUsers();
+            refetchUsers(); // Revert on failure by refetching
         }
     }
   };
@@ -140,13 +146,13 @@ const DlControls: React.FC = () => {
   const handleSaveNewUser = async (name: string, email: string) => {
     try {
         const newUser: User = {
-          id: Date.now(), // Generate a unique ID for the new user. In a real app, this would be handled by the backend.
+          id: Date.now(),
           name,
           email,
           role: 'Viewer',
         };
         await saveUser(newUser);
-        await fetchUsers(); // Refresh the user list from the DB
+        invalidateQuery(['users']);
         setIsAddUserModalOpen(false);
     } catch (e) {
         alert(`Failed to add user: ${e instanceof Error ? e.message : String(e)}`);
@@ -155,17 +161,16 @@ const DlControls: React.FC = () => {
   };
 
   const handleDeleteUser = async (userId: number) => {
-    const userToDelete = users.find(u => u.id === userId);
+    const userToDelete = usersState.find(u => u.id === userId);
     if (userToDelete && window.confirm(`Are you sure you want to delete user "${userToDelete.name}"?`)) {
         try {
-            // Keep optimistic update for good UX
-            setUsers(users.filter(u => u.id !== userId));
+            setUsersState(usersState.filter(u => u.id !== userId));
             await deleteUser(userId);
+            invalidateQuery(['users']);
         } catch (e) {
             alert(`Failed to delete user: ${e instanceof Error ? e.message : String(e)}`);
             console.error("Error deleting user:", e);
-            // Revert optimistic update on failure
-            fetchUsers();
+            refetchUsers();
         }
     }
   };
@@ -192,7 +197,7 @@ const DlControls: React.FC = () => {
             <button onClick={() => setIsAddUserModalOpen(true)} className="flex items-center justify-center w-8 h-8 text-lg rounded-md bg-slate-600 hover:bg-slate-500 text-white font-semibold">+</button>
           </div>
           <div className="flex-grow overflow-y-auto space-y-2 win-scrollbar pr-2" style={{maxHeight: '250px'}}>
-            {users.map(user => (
+            {usersState.map(user => (
               <div key={user.id} className="flex items-center justify-between p-2 bg-slate-900/50 rounded-lg">
                 <div>
                   <p className="font-semibold text-slate-200">{user.name}</p>
@@ -208,11 +213,11 @@ const DlControls: React.FC = () => {
                       <option>Analyst</option>
                       <option>Viewer</option>
                     </select>
-                     <button onClick={() => handleDeleteUser(user.id)} aria-label={`Delete user ${user.name}`} className="w-8 h-8 flex-shrink-0 bg-red-800/80 text-white rounded-md flex items-center justify-center hover:bg-red-800">
+                     <Button variant="danger" onClick={() => handleDeleteUser(user.id)} aria-label={`Delete user ${user.name}`} className="w-8 h-8 p-0 flex-shrink-0 flex items-center justify-center">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                         </svg>
-                    </button>
+                    </Button>
                 </div>
               </div>
             ))}
@@ -267,16 +272,17 @@ const DlControls: React.FC = () => {
                     </div>
                 ))}
             </div>
-            <button 
+            <Button 
+              variant="secondary"
+              className="w-full"
               onClick={handleOptimize} 
               disabled={optimizing}
-              className="w-full bg-slate-700 text-white font-semibold px-4 py-2 rounded-lg hover:bg-slate-600 transition-colors disabled:bg-slate-600 disabled:cursor-not-allowed"
             >
               {optimizing ? 'Analyzing...' : 'Run Usage Analysis'}
-            </button>
+            </Button>
         </Card>
       </div>
-       {isAddUserModalOpen && <AddUserModal onClose={() => setIsAddUserModalOpen(false)} onAdd={handleSaveNewUser} />}
+       <AddUserModal isOpen={isAddUserModalOpen} onClose={() => setIsAddUserModalOpen(false)} onAdd={handleSaveNewUser} />
        <style>{`
         .win-scrollbar::-webkit-scrollbar {
           width: 16px;

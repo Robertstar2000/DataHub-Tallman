@@ -1,29 +1,22 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import Card from './Card';
 import { getAuditLogs } from '../services/api';
 import type { AuditLog as AuditLogType } from '../types';
+import { useQuery } from '../hooks/useQuery';
 
 const AuditLog: React.FC = () => {
-    const [logs, setLogs] = useState<AuditLogType[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const { data: logs = [], isLoading } = useQuery<AuditLogType[]>(['auditLogs'], getAuditLogs);
     const [searchTerm, setSearchTerm] = useState('');
 
-    useEffect(() => {
-        const loadLogs = async () => {
-            setIsLoading(true);
-            const fetchedLogs = await getAuditLogs();
-            setLogs(fetchedLogs);
-            setIsLoading(false);
-        };
-        loadLogs();
-    }, []);
-
-    const filteredLogs = logs.filter(log => 
-        log.user.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        log.action.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        log.details.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const filteredLogs = useMemo(() => {
+        if (!searchTerm) return logs;
+        return logs.filter(log => 
+            log.user.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            log.action.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            log.details.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }, [logs, searchTerm]);
 
     return (
         <div className="space-y-6">

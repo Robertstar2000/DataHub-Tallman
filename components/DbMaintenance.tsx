@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import Card from './Card';
 import {
   getDbStatistics,
@@ -9,6 +9,8 @@ import {
   getVectorStoreStats,
   rebuildVectorStore,
 } from '../services/api';
+import { useQuery, invalidateQuery } from '../hooks/useQuery';
+import Button from './common/Button';
 
 type DbStats = Awaited<ReturnType<typeof getDbStatistics>> | null;
 type VectorStats = Awaited<ReturnType<typeof getVectorStoreStats>> | null;
@@ -21,8 +23,9 @@ const aiRecommendations = [
 ];
 
 const DbMaintenance: React.FC = () => {
-  const [dbStats, setDbStats] = useState<DbStats>(null);
-  const [vectorStats, setVectorStats] = useState<VectorStats>(null);
+  const { data: dbStats, refetch: refetchDbStats } = useQuery<DbStats>(['dbStatistics'], getDbStatistics);
+  const { data: vectorStats, refetch: refetchVectorStats } = useQuery<VectorStats>(['vectorStoreStats'], getVectorStoreStats);
+  
   const [logs, setLogs] = useState<string[]>([]);
   const [loading, setLoading] = useState({
     backup: false,
@@ -36,23 +39,12 @@ const DbMaintenance: React.FC = () => {
     setLogs(prev => [`${new Date().toLocaleTimeString()}: ${message}`, ...prev].slice(0, 100));
   };
 
-  const fetchStats = async () => {
-    try {
-      const sqlStats = await getDbStatistics();
-      setDbStats(sqlStats);
-      addLog('Fetched latest SQL database statistics.');
-
-      const vecStats = await getVectorStoreStats();
-      setVectorStats(vecStats);
-      addLog('Fetched latest vector store statistics.');
-    } catch (e: any) {
-      addLog(`Error fetching stats: ${e.message}`);
-    }
+  const fetchStats = () => {
+    addLog('Fetching latest statistics...');
+    refetchDbStats();
+    refetchVectorStats();
+    addLog('Statistics refreshed.');
   };
-  
-  useEffect(() => {
-    fetchStats();
-  }, []);
 
   const handleBackup = async () => {
     addLog('Starting database backup...');
@@ -112,7 +104,7 @@ const DbMaintenance: React.FC = () => {
       try {
           const result = await runMaintenance();
           addLog(result.message);
-          if(result.success) await fetchStats(); // Refresh stats after maintenance
+          if(result.success) fetchStats();
       } catch (e: any) {
           addLog(`Maintenance failed: ${e.message}`);
       } finally {
@@ -125,8 +117,9 @@ const DbMaintenance: React.FC = () => {
       setLoading(prev => ({...prev, rebuild: true}));
       try {
         await rebuildVectorStore();
+        invalidateQuery(['vectorStoreStats']);
         addLog('Vector store index rebuilt successfully.');
-        await fetchStats(); // Refresh stats
+        fetchStats();
       } catch(e: any) {
         addLog(`Error rebuilding index: ${e.message}`);
       } finally {
@@ -159,10 +152,10 @@ const DbMaintenance: React.FC = () => {
                   <StatItem label="Database Size" value={dbStats ? `${(dbStats.dbSizeBytes / 1024).toFixed(2)} KB` : '...'} />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                  <button onClick={handleBackup} disabled={loading.backup} className="btn-secondary">{loading.backup ? 'Backing up...' : 'Backup DB'}</button>
-                  <button onClick={handleRestoreClick} disabled={loading.restore} className="btn-secondary">{loading.restore ? 'Restoring...' : 'Restore DB'}</button>
+                  <Button variant="secondary" className="w-full" onClick={handleBackup} disabled={loading.backup}>{loading.backup ? 'Backing up...' : 'Backup DB'}</Button>
+                  <Button variant="secondary" className="w-full" onClick={handleRestoreClick} disabled={loading.restore}>{loading.restore ? 'Restoring...' : 'Restore DB'}</Button>
                   <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".db" className="hidden" />
-                  <button onClick={handleMaintenance} disabled={loading.maintenance} className="btn-secondary">{loading.maintenance ? 'Running...' : 'Run Maintenance'}</button>
+                  <Button variant="secondary" className="w-full" onClick={handleMaintenance} disabled={loading.maintenance}>{loading.maintenance ? 'Running...' : 'Run Maintenance'}</Button>
               </div>
           </Card>
           <Card>
@@ -171,7 +164,7 @@ const DbMaintenance: React.FC = () => {
                   <StatItem label="Indexed Documents" value={vectorStats?.documentCount ?? '...'} />
                   <StatItem label="Vector Dimension" value={vectorStats?.vectorDimension ?? '...'} />
               </div>
-              <button onClick={handleRebuildIndex} disabled={loading.rebuild} className="btn-primary w-full">{loading.rebuild ? 'Rebuilding...' : 'Rebuild Index'}</button>
+              <Button variant="primary" className="w-full" onClick={handleRebuildIndex} disabled={loading.rebuild}>{loading.rebuild ? 'Rebuilding...' : 'Rebuild Index'}</Button>
           </Card>
            <Card>
               <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
@@ -201,8 +194,6 @@ const DbMaintenance: React.FC = () => {
       </div>
       
       <style>{`
-        .btn-primary { @apply w-full bg-cyan-500 text-white font-semibold px-4 py-2 rounded-lg hover:bg-cyan-600 transition-colors disabled:bg-slate-600 disabled:cursor-not-allowed; }
-        .btn-secondary { @apply w-full bg-slate-700 text-white font-semibold px-4 py-2 rounded-lg hover:bg-slate-600 transition-colors disabled:bg-slate-600 disabled:cursor-not-allowed; }
         @keyframes fade-in { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
         .animate-fade-in { animation: fade-in 0.3s ease-out; }
       `}</style>

@@ -3,42 +3,32 @@ import React, { useState, useEffect } from 'react';
 import Card from './Card';
 import { getTableSchemas, getPiiFindings, getDataAccessPolicies, saveDataAccessPolicy } from '../services/api';
 import type { Role, PiiFinding, DataAccessPolicy } from '../types';
+import { useQuery, invalidateQuery } from '../hooks/useQuery';
+import { useGovernanceStore } from '../store/governanceStore';
 
 const ROLES: Role[] = ['Admin', 'Analyst', 'Viewer'];
 
 const DataGovernance: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'policies' | 'pii'>('policies');
-  const [policies, setPolicies] = useState<DataAccessPolicy[]>([]);
-  const [schemas, setSchemas] = useState<Record<string, {columns: string}>>({});
-  const [isLoading, setIsLoading] = useState(true);
-
-  const loadData = async () => {
-      setIsLoading(true);
-      const [fetchedPolicies, fetchedSchemas] = await Promise.all([getDataAccessPolicies(), getTableSchemas()]);
-      setPolicies(fetchedPolicies);
-      setSchemas(fetchedSchemas);
-      setIsLoading(false);
-  }
+  
+  const { data: initialPolicies, isLoading: isLoadingPolicies } = useQuery(['dataAccessPolicies'], getDataAccessPolicies);
+  const { data: schemas, isLoading: isLoadingSchemas } = useQuery(['tableSchemas'], getTableSchemas);
+  
+  const { policies, setPolicies, updatePolicy } = useGovernanceStore();
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (initialPolicies) {
+      setPolicies(initialPolicies);
+    }
+  }, [initialPolicies, setPolicies]);
 
   const handlePolicyChange = async (policy: DataAccessPolicy) => {
-      // Optimistic update
-      setPolicies(prev => {
-          const index = prev.findIndex(p => p.id === policy.id);
-          if (index > -1) {
-              const newPolicies = [...prev];
-              newPolicies[index] = policy;
-              return newPolicies;
-          }
-          return [...prev, policy];
-      });
+      updatePolicy(policy);
       await saveDataAccessPolicy(policy);
-      // Optional: refetch for robustness, but optimistic update provides better UX
-      // await loadData();
+      invalidateQuery(['dataAccessPolicies']);
   };
+  
+  const isLoading = isLoadingPolicies || isLoadingSchemas;
 
   return (
     <div className="space-y-6">
@@ -54,7 +44,7 @@ const DataGovernance: React.FC = () => {
 
       {isLoading ? <Card><p>Loading governance data...</p></Card> : (
         <>
-            {activeTab === 'policies' && <AccessPolicies policies={policies} schemas={schemas} onPolicyChange={handlePolicyChange} />}
+            {activeTab === 'policies' && <AccessPolicies policies={policies} schemas={schemas || {}} onPolicyChange={handlePolicyChange} />}
             {activeTab === 'pii' && <PiiScanner policies={policies} onApplyPolicy={handlePolicyChange} />}
         </>
       )}
@@ -158,17 +148,15 @@ const PiiScanner: React.FC<{
     policies: DataAccessPolicy[],
     onApplyPolicy: (policy: DataAccessPolicy) => void
 }> = ({ policies, onApplyPolicy }) => {
-    const [findings, setFindings] = useState<PiiFinding[]>([]);
-    const [isScanning, setIsScanning] = useState(false);
-
-    const handleScan = async () => {
-        setIsScanning(true);
-        // Simulate a delay for scanning
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        const fetchedFindings = await getPiiFindings();
-        setFindings(fetchedFindings);
-        setIsScanning(false);
-    };
+    const { data: findings, isLoading: isScanning, refetch } = useQuery<PiiFinding[]>(
+        ['piiFindings'],
+        async () => {
+            // Simulate scan delay
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            return getPiiFindings();
+        },
+        { enabled: false } // Only fetch on manual trigger
+    );
 
     const handleApplyPolicy = (finding: PiiFinding) => {
         const rolesToUpdate: Role[] = ['Analyst', 'Viewer'];
@@ -207,7 +195,7 @@ const PiiScanner: React.FC<{
          <Card>
             <div className="flex justify-between items-center mb-4">
                  <h2 className="text-xl font-bold text-white">PII Scan Results</h2>
-                 <button onClick={handleScan} disabled={isScanning} className="bg-cyan-500 text-white font-semibold px-4 py-2 rounded-lg hover:bg-cyan-600 disabled:bg-slate-600">
+                 <button onClick={() => refetch()} disabled={isScanning} className="bg-cyan-500 text-white font-semibold px-4 py-2 rounded-lg hover:bg-cyan-600 disabled:bg-slate-600">
                     {isScanning ? 'Scanning...' : 'Run Full Scan'}
                  </button>
             </div>
@@ -215,9 +203,13 @@ const PiiScanner: React.FC<{
                  <div className="text-center py-8">
                      <p className="text-slate-400">Scanning database for PII...</p>
                  </div>
+            ) : !findings ? (
+                 <div className="text-center py-8">
+                     <p className="text-slate-400">No scan has been run yet.</p>
+                 </div>
             ) : findings.length === 0 ? (
                  <div className="text-center py-8">
-                     <p className="text-slate-400">No PII found, or no scan has been run.</p>
+                     <p className="text-slate-400">No PII found.</p>
                  </div>
             ) : (
                 <div className="divide-y divide-slate-700">

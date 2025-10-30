@@ -1,62 +1,46 @@
-import React, { useState, useEffect } from 'react';
+
+// FIX: Add 'useMemo' to the React import.
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Card from './Card';
 import { getTableSchemas, createPrediction, getPredictionModels, deletePredictionModel, executeQuery } from '../services/api';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import type { PredictionModel } from '../types';
+import { useQuery, invalidateQuery } from '../hooks/useQuery';
+import Button from './common/Button';
 
 const ModelView: React.FC<{ model: PredictionModel, onDelete: (id: string) => void }> = ({ model, onDelete }) => {
-    const [chartData, setChartData] = useState<any[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const { data: chartData = [], isLoading } = useQuery(
+        ['predictionChart', model.id],
+        async () => {
+            const historyQuery = `SELECT "${model.dateColumn}" AS name, "${model.targetColumn}" AS actual FROM "${model.sourceTable}" ORDER BY name`;
+            const forecastQuery = `SELECT prediction_date AS name, predicted_value AS predicted FROM "${model.resultTable}" ORDER BY name`;
+            
+            const [historyRes, forecastRes] = await Promise.all([
+                executeQuery(historyQuery),
+                executeQuery(forecastQuery)
+            ]);
 
-    useEffect(() => {
-        const fetchData = async () => {
-            setIsLoading(true);
-            try {
-                const historyQuery = `SELECT "${model.dateColumn}" AS name, "${model.targetColumn}" AS actual FROM "${model.sourceTable}" ORDER BY name`;
-                const forecastQuery = `SELECT prediction_date AS name, predicted_value AS predicted FROM "${model.resultTable}" ORDER BY name`;
-                
-                const [historyRes, forecastRes] = await Promise.all([
-                    executeQuery(historyQuery),
-                    executeQuery(forecastQuery)
-                ]);
-
-                // FIX: Check for errors individually to allow TypeScript to narrow the types.
-                if ('error' in historyRes) {
-                    throw new Error(historyRes.error);
+            if ('error' in historyRes) throw new Error(historyRes.error);
+            if ('error' in forecastRes) throw new Error(forecastRes.error);
+            
+            const mergedData = [...historyRes.data];
+            const forecastMap = new Map(forecastRes.data.map(d => [d.name, d.predicted]));
+            
+            mergedData.forEach(d => {
+                if (forecastMap.has(d.name)) {
+                    d.predicted = forecastMap.get(d.name);
+                    forecastMap.delete(d.name);
                 }
-                if ('error' in forecastRes) {
-                    throw new Error(forecastRes.error);
-                }
-                
-                const mergedData = [...historyRes.data];
-                const forecastMap = new Map(forecastRes.data.map(d => [d.name, d.predicted]));
-                
-                mergedData.forEach(d => {
-                    if (forecastMap.has(d.name)) {
-                        d.predicted = forecastMap.get(d.name);
-                        forecastMap.delete(d.name);
-                    }
-                });
-                
-                forecastMap.forEach((value, name) => {
-                    mergedData.push({ name, predicted: value });
-                });
+            });
+            
+            forecastMap.forEach((value, name) => {
+                mergedData.push({ name, predicted: value });
+            });
 
-                setChartData(mergedData.sort((a, b) => a.name.localeCompare(b.name)));
-
-            } catch (error) {
-                console.error("Failed to fetch chart data for model:", model.name, error);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        if (model.status === 'Ready' && model.resultTable) {
-            fetchData();
-        } else {
-            setIsLoading(false);
-        }
-    }, [model]);
+            return mergedData.sort((a, b) => a.name.localeCompare(b.name));
+        },
+        { enabled: model.status === 'Ready' && !!model.resultTable }
+    );
 
     const forecastStartIndex = chartData.findIndex(d => d.predicted !== undefined && d.actual === undefined);
 
@@ -100,7 +84,7 @@ const ModelView: React.FC<{ model: PredictionModel, onDelete: (id: string) => vo
                     <p><strong>Created:</strong> {new Date(model.createdAt).toLocaleString()}</p>
                     {model.accuracy && <p><strong>Simulated Accuracy:</strong> { (model.accuracy * 100).toFixed(1) }%</p>}
                 </div>
-                <button onClick={() => onDelete(model.id)} className="bg-red-800/80 hover:bg-red-700 text-white font-semibold px-3 py-1 rounded-md text-sm">Delete</button>
+                <Button variant="danger" onClick={() => onDelete(model.id)} className="text-sm px-3 py-1">Delete</Button>
             </div>
         </Card>
     );
@@ -108,30 +92,19 @@ const ModelView: React.FC<{ model: PredictionModel, onDelete: (id: string) => vo
 
 
 const PredictiveAnalytics: React.FC = () => {
-    const [models, setModels] = useState<PredictionModel[]>([]);
+    const { data: models = [], isLoading, refetch } = useQuery<PredictionModel[]>(['predictionModels'], getPredictionModels);
     const [view, setView] = useState<'list' | 'create'>('list');
-    const [isLoading, setIsLoading] = useState(true);
-
-    const loadModels = async () => {
-        setIsLoading(true);
-        const fetchedModels = await getPredictionModels();
-        setModels(fetchedModels);
-        setIsLoading(false);
-    };
-
-    useEffect(() => {
-        loadModels();
-    }, []);
 
     const handleModelCreated = () => {
-        loadModels();
+        refetch();
         setView('list');
     };
 
     const handleModelDeleted = async (modelId: string) => {
         if (window.confirm("Are you sure you want to delete this prediction model and its results?")) {
             await deletePredictionModel(modelId);
-            loadModels();
+            invalidateQuery(['predictionModels']);
+            refetch();
         }
     };
 
@@ -140,9 +113,9 @@ const PredictiveAnalytics: React.FC = () => {
             <div className="flex justify-between items-center">
                 <h1 className="text-3xl font-bold text-white">Predictive Analytics</h1>
                 {view === 'list' && (
-                    <button onClick={() => setView('create')} className="bg-cyan-500 text-white font-semibold px-4 py-2 rounded-lg hover:bg-cyan-600">
+                    <Button onClick={() => setView('create')}>
                         + New Prediction Model
-                    </button>
+                    </Button>
                 )}
             </div>
             <p className="text-slate-400 max-w-3xl">
@@ -160,9 +133,9 @@ const PredictiveAnalytics: React.FC = () => {
                     ) : (
                          <div className="text-center py-12 border-2 border-dashed border-slate-700 rounded-lg">
                             <p className="text-slate-400 mb-4">You haven't created any prediction models yet.</p>
-                            <button onClick={() => setView('create')} className="bg-cyan-500 text-white font-semibold px-4 py-2 rounded-lg hover:bg-cyan-600">
+                            <Button onClick={() => setView('create')}>
                                 Create Your First Model
-                            </button>
+                            </Button>
                         </div>
                     )}
                 </div>
@@ -179,36 +152,27 @@ const CreateModelView: React.FC<{ onCancel: () => void, onCreated: () => void }>
     const [targetColumn, setTargetColumn] = useState('');
     const [dateColumn, setDateColumn] = useState('');
     
-    const [allTables, setAllTables] = useState<string[]>([]);
+    const { data: schemas, isLoading: isLoadingSchemas } = useQuery(['tableSchemas'], getTableSchemas);
+    
     const [columns, setColumns] = useState<string[]>([]);
     const [isTraining, setIsTraining] = useState(false);
     const [trainingStatus, setTrainingStatus] = useState('');
 
-    useEffect(() => {
-        const fetchTables = async () => {
-            const schemas = await getTableSchemas();
-            setAllTables(Object.keys(schemas));
-        };
-        fetchTables();
-    }, []);
+    const allTables = useMemo(() => schemas ? Object.keys(schemas) : [], [schemas]);
 
     useEffect(() => {
-        const fetchColumns = async () => {
-            if (sourceTable) {
-                const schemas = await getTableSchemas();
-                const schemaString = schemas[sourceTable]?.columns;
-                if (schemaString) {
-                    const cols = schemaString.split(', ').map(s => s.split(' ')[0]);
-                    setColumns(cols);
-                    setTargetColumn('');
-                    setDateColumn('');
-                }
-            } else {
-                setColumns([]);
+        if (sourceTable && schemas) {
+            const schemaString = schemas[sourceTable]?.columns;
+            if (schemaString) {
+                const cols = schemaString.split(', ').map(s => s.split(' ')[0]);
+                setColumns(cols);
+                setTargetColumn('');
+                setDateColumn('');
             }
-        };
-        fetchColumns();
-    }, [sourceTable]);
+        } else {
+            setColumns([]);
+        }
+    }, [sourceTable, schemas]);
 
     const handleTrainModel = async () => {
         if (!modelName || !sourceTable || !targetColumn || !dateColumn) {
@@ -220,11 +184,11 @@ const CreateModelView: React.FC<{ onCancel: () => void, onCreated: () => void }>
         
         const modelData = { name: modelName, sourceTable, targetColumn, dateColumn };
 
-        // Simulate training process
         setTimeout(() => setTrainingStatus("Analyzing historical data..."), 1000);
         setTimeout(() => setTrainingStatus("Training forecasting model... (this is a simulation)"), 2500);
         
         await createPrediction(modelData);
+        invalidateQuery(['predictionModels']);
         
         setTimeout(() => {
             setTrainingStatus("Model trained successfully!");
@@ -245,7 +209,7 @@ const CreateModelView: React.FC<{ onCancel: () => void, onCreated: () => void }>
                     <div>
                         <label className="block text-slate-400 mb-1">Source Table</label>
                         <select value={sourceTable} onChange={e => setSourceTable(e.target.value)} className="w-full bg-slate-700 input-style">
-                            <option value="">Select a table...</option>
+                            <option value="">{isLoadingSchemas ? 'Loading tables...' : 'Select a table...'}</option>
                             {allTables.map(t => <option key={t} value={t}>{t}</option>)}
                         </select>
                     </div>
@@ -277,16 +241,16 @@ const CreateModelView: React.FC<{ onCancel: () => void, onCreated: () => void }>
                     ) : (
                         <div className="text-center">
                             <p className="text-slate-400 mb-4">Once configured, the system will analyze the historical data to build a time-series forecasting model.</p>
-                             <button onClick={handleTrainModel} className="bg-cyan-500 text-white font-semibold px-6 py-2 rounded-lg hover:bg-cyan-600">
+                             <Button onClick={handleTrainModel}>
                                 Train Model
-                            </button>
+                            </Button>
                         </div>
                     )}
                  </div>
             </div>
 
              <div className="flex justify-end gap-4 pt-6 mt-6 border-t border-slate-700/50">
-                <button onClick={onCancel} className="bg-slate-600 text-white font-semibold px-6 py-2 rounded-lg hover:bg-slate-500">Cancel</button>
+                <Button variant="secondary" onClick={onCancel}>Cancel</Button>
             </div>
              <style>{`.input-style { @apply border border-slate-600 rounded-lg px-4 py-2 text-white disabled:opacity-50; }`}</style>
         </Card>
