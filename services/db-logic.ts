@@ -330,7 +330,7 @@ export async function initializeDatabase(dbBytes?: Uint8Array): Promise<string> 
     try {
       // The manual fetch provides a robust way to load the wasm file, bypassing
       // the library's internal logic which can fail in some environments.
-      const wasmUrl = 'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.wasm';
+      const wasmUrl = 'https://esm.sh/sql.js@1.10.3/dist/sql-wasm.wasm';
       const response = await fetch(wasmUrl);
       if (!response.ok) {
         throw new Error(`Failed to fetch sql.js WASM module: ${response.statusText}`);
