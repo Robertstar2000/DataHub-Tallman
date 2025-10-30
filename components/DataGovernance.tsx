@@ -8,6 +8,37 @@ const ROLES: Role[] = ['Admin', 'Analyst', 'Viewer'];
 
 const DataGovernance: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'policies' | 'pii'>('policies');
+  const [policies, setPolicies] = useState<DataAccessPolicy[]>([]);
+  const [schemas, setSchemas] = useState<Record<string, {columns: string}>>({});
+  const [isLoading, setIsLoading] = useState(true);
+
+  const loadData = async () => {
+      setIsLoading(true);
+      const [fetchedPolicies, fetchedSchemas] = await Promise.all([getDataAccessPolicies(), getTableSchemas()]);
+      setPolicies(fetchedPolicies);
+      setSchemas(fetchedSchemas);
+      setIsLoading(false);
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const handlePolicyChange = async (policy: DataAccessPolicy) => {
+      // Optimistic update
+      setPolicies(prev => {
+          const index = prev.findIndex(p => p.id === policy.id);
+          if (index > -1) {
+              const newPolicies = [...prev];
+              newPolicies[index] = policy;
+              return newPolicies;
+          }
+          return [...prev, policy];
+      });
+      await saveDataAccessPolicy(policy);
+      // Optional: refetch for robustness, but optimistic update provides better UX
+      // await loadData();
+  };
 
   return (
     <div className="space-y-6">
@@ -21,8 +52,12 @@ const DataGovernance: React.FC = () => {
         <TabButton name="pii" activeView={activeTab} setActiveView={setActiveTab}>PII Scanner</TabButton>
       </div>
 
-      {activeTab === 'policies' && <AccessPolicies />}
-      {activeTab === 'pii' && <PiiScanner />}
+      {isLoading ? <Card><p>Loading governance data...</p></Card> : (
+        <>
+            {activeTab === 'policies' && <AccessPolicies policies={policies} schemas={schemas} onPolicyChange={handlePolicyChange} />}
+            {activeTab === 'pii' && <PiiScanner policies={policies} onApplyPolicy={handlePolicyChange} />}
+        </>
+      )}
     </div>
   );
 };
@@ -36,28 +71,13 @@ const TabButton: React.FC<{name: 'policies' | 'pii', activeView: string, setActi
     )
 }
 
-const AccessPolicies: React.FC = () => {
-    const [policies, setPolicies] = useState<DataAccessPolicy[]>([]);
-    const [schemas, setSchemas] = useState<Record<string, {columns: string}>>({});
+const AccessPolicies: React.FC<{
+    policies: DataAccessPolicy[],
+    schemas: Record<string, {columns: string}>,
+    onPolicyChange: (policy: DataAccessPolicy) => void
+}> = ({ policies, schemas, onPolicyChange }) => {
     const [selectedRole, setSelectedRole] = useState<Role>('Analyst');
     
-    useEffect(() => {
-        const loadData = async () => {
-            const [fetchedPolicies, fetchedSchemas] = await Promise.all([getDataAccessPolicies(), getTableSchemas()]);
-            setPolicies(fetchedPolicies);
-            setSchemas(fetchedSchemas);
-        };
-        loadData();
-    }, []);
-
-    const handlePolicyChange = async (policy: DataAccessPolicy) => {
-        // In a real app, you'd probably have a more complex state management
-        // For this simulation, we just save and refetch
-        await saveDataAccessPolicy(policy);
-        const fetchedPolicies = await getDataAccessPolicies();
-        setPolicies(fetchedPolicies);
-    };
-
     const getPolicyFor = (role: Role, table: string): DataAccessPolicy => {
         return policies.find(p => p.role === role && p.table === table) || {
             id: `${role}-${table}`,
@@ -80,7 +100,7 @@ const AccessPolicies: React.FC = () => {
                     </button>
                 ))}
             </div>
-            <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2 -mr-2">
                 {Object.keys(schemas).map(table => {
                     const policy = getPolicyFor(selectedRole, table);
                     const columns = schemas[table].columns.split(', ').map(c => c.split(' ')[0]);
@@ -91,7 +111,7 @@ const AccessPolicies: React.FC = () => {
                                 <h3 className="text-lg font-semibold text-white">{table}</h3>
                                 <select 
                                     value={policy.accessLevel} 
-                                    onChange={(e) => handlePolicyChange({...policy, accessLevel: e.target.value as DataAccessPolicy['accessLevel'], columnPermissions: {}})}
+                                    onChange={(e) => onPolicyChange({...policy, accessLevel: e.target.value as DataAccessPolicy['accessLevel'], columnPermissions: {}})}
                                     className="bg-slate-700 border border-slate-600 rounded-md px-2 py-1 text-sm text-white"
                                 >
                                     <option value="all">Full Access</option>
@@ -116,7 +136,7 @@ const AccessPolicies: React.FC = () => {
                                                         } else {
                                                             newPerms[col] = 'masked';
                                                         }
-                                                        handlePolicyChange({...policy, columnPermissions: newPerms});
+                                                        onPolicyChange({...policy, columnPermissions: newPerms});
                                                     }}
                                                     className="w-4 h-4 text-cyan-600 bg-slate-700 border-slate-500 rounded focus:ring-cyan-500"
                                                 />
@@ -134,7 +154,10 @@ const AccessPolicies: React.FC = () => {
     );
 };
 
-const PiiScanner: React.FC = () => {
+const PiiScanner: React.FC<{
+    policies: DataAccessPolicy[],
+    onApplyPolicy: (policy: DataAccessPolicy) => void
+}> = ({ policies, onApplyPolicy }) => {
     const [findings, setFindings] = useState<PiiFinding[]>([]);
     const [isScanning, setIsScanning] = useState(false);
 
@@ -145,6 +168,39 @@ const PiiScanner: React.FC = () => {
         const fetchedFindings = await getPiiFindings();
         setFindings(fetchedFindings);
         setIsScanning(false);
+    };
+
+    const handleApplyPolicy = (finding: PiiFinding) => {
+        const rolesToUpdate: Role[] = ['Analyst', 'Viewer'];
+        rolesToUpdate.forEach(role => {
+            const existingPolicy = policies.find(p => p.role === role && p.table === finding.table) || {
+                id: `${role}-${finding.table}`,
+                role,
+                table: finding.table,
+                accessLevel: 'all',
+                columnPermissions: {},
+            };
+
+            const updatedPolicy: DataAccessPolicy = {
+                ...existingPolicy,
+                accessLevel: 'partial',
+                columnPermissions: {
+                    ...existingPolicy.columnPermissions,
+                    [finding.column]: 'masked',
+                }
+            };
+            onApplyPolicy(updatedPolicy);
+        });
+    };
+    
+    const isPolicyApplied = (finding: PiiFinding): boolean => {
+        const analystPolicy = policies.find(p => p.role === 'Analyst' && p.table === finding.table);
+        const viewerPolicy = policies.find(p => p.role === 'Viewer' && p.table === finding.table);
+
+        const isAnalystMasked = analystPolicy?.accessLevel === 'partial' && analystPolicy.columnPermissions?.[finding.column] === 'masked';
+        const isViewerMasked = viewerPolicy?.accessLevel === 'partial' && viewerPolicy.columnPermissions?.[finding.column] === 'masked';
+
+        return !!(isAnalystMasked && isViewerMasked);
     };
 
     return (
@@ -171,14 +227,27 @@ const PiiScanner: React.FC = () => {
                         <span>PII Type</span>
                         <span>Action</span>
                     </div>
-                    {findings.map((finding, index) => (
-                        <div key={index} className="grid grid-cols-4 gap-4 p-3 hover:bg-slate-800/50 items-center">
-                            <div className="text-slate-200 font-mono">{finding.table}</div>
-                            <div className="text-slate-200 font-mono">{finding.column}</div>
-                            <div className="text-yellow-400 font-mono text-sm">{finding.piiType}</div>
-                            <button className="bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold px-3 py-1 rounded-md justify-self-start">Apply Masking Policy</button>
-                        </div>
-                    ))}
+                    {findings.map((finding, index) => {
+                        const applied = isPolicyApplied(finding);
+                        return (
+                            <div key={index} className="grid grid-cols-4 gap-4 p-3 hover:bg-slate-800/50 items-center">
+                                <div className="text-slate-200 font-mono">{finding.table}</div>
+                                <div className="text-slate-200 font-mono">{finding.column}</div>
+                                <div className="text-yellow-400 font-mono text-sm">{finding.piiType}</div>
+                                <button 
+                                    onClick={() => handleApplyPolicy(finding)}
+                                    disabled={applied}
+                                    className={`text-xs font-semibold px-3 py-1 rounded-md justify-self-start transition-colors ${
+                                        applied 
+                                        ? 'bg-green-700 text-white cursor-default' 
+                                        : 'bg-slate-700 hover:bg-slate-600 text-white'
+                                    }`}
+                                >
+                                    {applied ? 'Policy Applied' : 'Apply Masking Policy'}
+                                </button>
+                            </div>
+                        );
+                    })}
                 </div>
             )}
          </Card>

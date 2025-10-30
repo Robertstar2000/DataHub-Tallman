@@ -1,3 +1,5 @@
+
+
 // Types for Dashboard Builder
 export type ChartType = 'Metric' | 'Bar' | 'Line' | 'Pie';
 
@@ -96,6 +98,13 @@ export interface User {
   role: Role;
 }
 
+export interface OtherInterface {
+  name: string;
+  type: 'API' | 'EDI' | 'File Transfer' | 'Direct DB' | 'Shop Floor';
+  description: string;
+  status: 'Active' | 'Inactive';
+}
+
 // FIX: Moved from unstructuredData.ts to centralize types
 // Types for Governance & Security
 export interface DataAccessPolicy {
@@ -127,6 +136,7 @@ export interface PredictionModel {
     name: string;
     sourceTable: string;
     targetColumn: string;
+    dateColumn: string;
     status: 'Training' | 'Ready' | 'Error';
     createdAt: string;
     accuracy?: number; // e.g., 0.85

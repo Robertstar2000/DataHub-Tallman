@@ -210,7 +210,7 @@ function populateNewDatabase(db: Database) {
     db.run(`CREATE TABLE dl_users ( id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE, role TEXT );`);
     db.run(`CREATE TABLE audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, user TEXT, action TEXT, details TEXT);`);
     db.run(`CREATE TABLE data_access_policies (id TEXT PRIMARY KEY, role TEXT, "table" TEXT, accessLevel TEXT, columnPermissions TEXT, rowLevelSecurity TEXT);`);
-    db.run(`CREATE TABLE prediction_models (id TEXT PRIMARY KEY, name TEXT, sourceTable TEXT, targetColumn TEXT, status TEXT, createdAt TEXT, accuracy REAL, resultTable TEXT);`);
+    db.run(`CREATE TABLE prediction_models (id TEXT PRIMARY KEY, name TEXT, sourceTable TEXT, targetColumn TEXT, dateColumn TEXT, status TEXT, createdAt TEXT, accuracy REAL, resultTable TEXT);`);
     db.run(`CREATE TABLE workflow_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, workflow_id TEXT, version INTEGER, createdAt TEXT, nodes TEXT, edges TEXT);`);
     db.run(`CREATE TABLE execution_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, workflow_id TEXT, version INTEGER, startedAt TEXT, finishedAt TEXT, status TEXT, logs TEXT, rowsProcessed INTEGER);`);
 
@@ -633,17 +633,57 @@ export function saveDataAccessPolicy(policy: DataAccessPolicy) {
     executeQuery("REPLACE INTO data_access_policies (id, role, \"table\", accessLevel, columnPermissions, rowLevelSecurity) VALUES (?, ?, ?, ?, ?, ?)", [policy.id, policy.role, policy.table, policy.accessLevel, JSON.stringify(policy.columnPermissions || {}), policy.rowLevelSecurity]);
 }
 export function getPredictionModels(): PredictionModel[] { return executeQuery("SELECT * FROM prediction_models").data as PredictionModel[]; }
+
 export function createPrediction(modelData: Omit<PredictionModel, 'id' | 'status' | 'createdAt'>) {
+    const resultTable = `prediction_${modelData.name.replace(/\s+/g, '_').toLowerCase()}`;
     const newModel: PredictionModel = {
         ...modelData,
         id: `pred-${Date.now()}`,
         status: 'Ready',
         createdAt: new Date().toISOString(),
         accuracy: Math.random() * (0.95 - 0.75) + 0.75, // Random accuracy between 75% and 95%
-        resultTable: `prediction_${modelData.name.replace(/\s+/g, '_').toLowerCase()}`
+        resultTable
     };
-    executeQuery("INSERT INTO prediction_models (id, name, sourceTable, targetColumn, status, createdAt, accuracy, resultTable) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [newModel.id, newModel.name, newModel.sourceTable, newModel.targetColumn, newModel.status, newModel.createdAt, newModel.accuracy, newModel.resultTable]);
+    executeQuery("INSERT INTO prediction_models (id, name, sourceTable, targetColumn, dateColumn, status, createdAt, accuracy, resultTable) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [newModel.id, newModel.name, newModel.sourceTable, newModel.targetColumn, newModel.dateColumn, newModel.status, newModel.createdAt, newModel.accuracy, newModel.resultTable]);
+
+    // Create and populate the result table with a mock forecast
+    const historyResult = executeQuery(`SELECT ${modelData.dateColumn}, ${modelData.targetColumn} FROM ${modelData.sourceTable} ORDER BY ${modelData.dateColumn} DESC LIMIT 5`);
+    if ('error' in historyResult || historyResult.data.length < 2) {
+        console.error("Not enough historical data to create a forecast.");
+        return;
+    }
+
+    const historyData = historyResult.data.reverse(); // oldest to newest
+    const lastValue = historyData[historyData.length - 1][modelData.targetColumn];
+    const trend = (lastValue - historyData[0][modelData.targetColumn]) / historyData.length;
+    let lastDate = new Date(historyData[historyData.length - 1][modelData.dateColumn]);
+
+    executeQuery(`DROP TABLE IF EXISTS ${resultTable};`);
+    executeQuery(`CREATE TABLE ${resultTable} (prediction_date TEXT, predicted_value REAL, confidence_upper_bound REAL, confidence_lower_bound REAL, model_id TEXT);`);
+
+    let currentValue = lastValue;
+    for (let i = 1; i <= 12; i++) {
+        lastDate.setDate(lastDate.getDate() + 1); // Increment date by one day
+        currentValue += trend * (1 + (Math.random() - 0.5) * 0.2); // trend + noise
+        const confidenceMargin = currentValue * 0.05 * (1 + Math.random() * 0.5); // 5-10% margin
+
+        executeQuery(`INSERT INTO ${resultTable} VALUES (?, ?, ?, ?, ?)`, [
+            lastDate.toISOString().split('T')[0],
+            currentValue,
+            currentValue + confidenceMargin,
+            currentValue - confidenceMargin,
+            newModel.id
+        ]);
+    }
 }
-export function deletePredictionModel(modelId: string) { executeQuery("DELETE FROM prediction_models WHERE id = ?", [modelId]); }
+
+export function deletePredictionModel(modelId: string) {
+    const modelResult = executeQuery("SELECT resultTable FROM prediction_models WHERE id = ?", [modelId]);
+    if (!('error' in modelResult) && modelResult.data.length > 0) {
+        const resultTable = modelResult.data[0].resultTable as string;
+        executeQuery(`DROP TABLE IF EXISTS ${resultTable};`);
+    }
+    executeQuery("DELETE FROM prediction_models WHERE id = ?", [modelId]);
+}
 export function getWorkflowVersions(workflowId: string): WorkflowVersion[] { return executeQuery("SELECT * FROM workflow_versions WHERE workflow_id = ? ORDER BY version DESC", [workflowId]).data as WorkflowVersion[]; }
 export function getExecutionLogs(workflowId: string): ExecutionLog[] { return executeQuery("SELECT * FROM execution_logs WHERE workflow_id = ? ORDER BY id DESC", [workflowId]).data as ExecutionLog[]; }

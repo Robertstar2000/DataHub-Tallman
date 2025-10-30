@@ -1,5 +1,5 @@
 {
-  "name": "Cloud DataHub",
+  "name": "Central DataHub",
   "description": "An interactive dashboard to explore and visualize a cloud-based data lake architecture, featuring data exploration, simulated querying, and an AI-powered data analyst powered by the Gemini API.",
   "requestFramePermissions": []
 }

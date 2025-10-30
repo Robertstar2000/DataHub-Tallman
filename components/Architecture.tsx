@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Card from './Card';
 import type { View } from '../App';
@@ -171,20 +172,21 @@ const Architecture: React.FC<ArchitectureProps> = ({ setCurrentView }) => {
     if (!selectedWorkflow) return [];
 
     const consumers: { name: string; type: keyof typeof detailIcons; targetView?: View }[] = [];
+
+    // 1. Find consumers based on this workflow's output tables
     const destinationTables = selectedWorkflow.nodes
         .filter(n => n.type === 'Sink' && n.data.tableName)
         .map(n => n.data.tableName as string);
 
-    if (destinationTables.length === 0) return [];
-
     for (const destinationTable of destinationTables) {
+        // Find other workflows that use this table as a source
         workflows.forEach(wf => {
             if (wf.id !== selectedWorkflow.id) {
                 const isConsumer = wf.nodes.some(n => (n.type === 'Source' || n.type === 'Join') && (n.data.tableName === destinationTable || n.data.tableNames?.includes(destinationTable)));
                 if (isConsumer) consumers.push({ name: wf.name, type: 'Workflow', targetView: 'workflow-builder' });
             }
         });
-
+        // Find dashboards that query this table
         dashboards.forEach(db => {
             const isConsumer = db.widgets.some(w =>
                 w.sqlQuery.toLowerCase().includes(`from ${destinationTable.toLowerCase()}`) ||
@@ -193,12 +195,14 @@ const Architecture: React.FC<ArchitectureProps> = ({ setCurrentView }) => {
             if (isConsumer) consumers.push({ name: db.name, type: 'Dashboard', targetView: 'dashboard-builder' });
         });
     }
-
+    
+    // 2. Find consumers based on direct trigger dependencies
     selectedWorkflow.triggersOnSuccess?.forEach(triggeredWfId => {
          const triggeredWf = workflows.find(wf => wf.id === triggeredWfId);
          if (triggeredWf) consumers.push({ name: `Triggers: ${triggeredWf.name}`, type: 'Trigger', targetView: 'workflow-builder' });
     });
     
+    // 3. Deduplicate and return
     return consumers.filter((consumer, index, self) => index === self.findIndex((c) => c.name === consumer.name && c.type === consumer.type));
   }, [selectedWorkflow, workflows, dashboards]);
 

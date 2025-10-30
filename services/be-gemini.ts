@@ -1,6 +1,8 @@
 
 
 
+
+
 import { GoogleGenAI, Chat, Type, FunctionDeclaration } from "@google/genai";
 import { unstructuredData } from '../data/unstructuredData';
 import { executeQuery as executeDbQuery, getTableSchemas, findSimilarDocumentsByQuery, getWorkflows } from './be-db';
@@ -179,7 +181,7 @@ export async function* getAiSqlResponseStream(query: string) {
                         functionResponse: {
                             id: fc.id,
                             name: fc.name,
-                            response: { result: JSON.stringify(dbResult) },
+                            response: { result: dbResult },
                         }
                     }],
                 });

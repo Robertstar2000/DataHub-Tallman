@@ -1,9 +1,11 @@
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import Card from './Card';
 import { getLoadedMcpServers } from '../services/api';
-import type { McpServer } from '../types';
-import { mcpFunctions, McpFunction } from '../data/mcpFunctions';
+import type { McpServer, OtherInterface } from '../types';
+import { mcpFunctions } from '../data/mcpFunctions';
+import { otherInterfaces, interfaceIcons } from '../data/mcpServers';
 
 // Mock data and types
 type QueryFrequency = 'real-time' | '5m' | '1h' | 'daily';
@@ -48,6 +50,31 @@ const generateMockLog = (mcpName: string, type: 'uploads' | 'downloads'): { log:
     
     return { log, functionName: selectedFunction.name };
 };
+
+const InterfaceList: React.FC = () => (
+    <div className="overflow-y-auto space-y-2 pr-2 -mr-2 max-h-[250px]">
+        {otherInterfaces.map(iface => (
+            <div key={iface.name} className="p-3 bg-slate-900/50 rounded-lg">
+                <div className="flex justify-between items-start">
+                    <div className="flex items-center gap-3">
+                        <div className="flex-shrink-0 w-8 h-8 bg-slate-800 rounded-md flex items-center justify-center">
+                            {interfaceIcons[iface.type]}
+                        </div>
+                        <div>
+                            <p className="font-semibold text-slate-200">{iface.name}</p>
+                            <p className="text-xs text-slate-400">{iface.description}</p>
+                        </div>
+                    </div>
+                     <div className="flex items-center text-xs font-semibold text-green-400 whitespace-nowrap">
+                        <span className="w-2 h-2 rounded-full mr-2 bg-green-500 animate-pulse"></span>
+                        {iface.status}
+                    </div>
+                </div>
+            </div>
+        ))}
+    </div>
+);
+
 
 const IoManagement: React.FC = () => {
     const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
@@ -138,26 +165,33 @@ const IoManagement: React.FC = () => {
             </p>
 
             <div className="flex-grow grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-0">
-                {/* Left: MCP List */}
-                <Card className="lg:col-span-1 flex flex-col">
-                    <h2 className="text-xl font-semibold text-white mb-4">Loaded MCPs</h2>
-                    <ul className="flex-grow overflow-y-auto space-y-2 pr-2 -mr-2">
-                        {mcpServers.map(server => (
-                            <li
-                                key={server.id}
-                                onClick={() => setSelectedMcpId(server.id)}
-                                className={`p-3 rounded-lg cursor-pointer transition-colors ${
-                                    selectedMcpId === server.id
-                                    ? 'bg-cyan-500/20 text-cyan-400'
-                                    : 'hover:bg-slate-700/50 text-slate-300'
-                                }`}
-                            >
-                                <h3 className="font-semibold">{server.name}</h3>
-                                <p className="text-sm text-slate-400 truncate">{server.url}</p>
-                            </li>
-                        ))}
-                    </ul>
-                </Card>
+                {/* Left: MCP List & Non-MCP Interfaces */}
+                 <div className="lg:col-span-1 flex flex-col gap-6">
+                    <Card className="flex flex-col">
+                        <h2 className="text-xl font-semibold text-white mb-4">Loaded MCPs</h2>
+                        <ul className="overflow-y-auto space-y-2 pr-2 -mr-2">
+                            {mcpServers.map(server => (
+                                <li
+                                    key={server.id}
+                                    onClick={() => setSelectedMcpId(server.id)}
+                                    className={`p-3 rounded-lg cursor-pointer transition-colors ${
+                                        selectedMcpId === server.id
+                                        ? 'bg-cyan-500/20 text-cyan-400'
+                                        : 'hover:bg-slate-700/50 text-slate-300'
+                                    }`}
+                                >
+                                    <h3 className="font-semibold">{server.name}</h3>
+                                    <p className="text-sm text-slate-400 truncate">{server.url}</p>
+                                </li>
+                            ))}
+                        </ul>
+                    </Card>
+                    
+                    <Card className="flex flex-col">
+                        <h2 className="text-xl font-semibold text-white mb-4">Coded & API Interfaces</h2>
+                        <InterfaceList />
+                    </Card>
+                </div>
                 
                 {/* Right: Details & Logs */}
                 <Card className="lg:col-span-2 flex flex-col">

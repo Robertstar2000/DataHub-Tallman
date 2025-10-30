@@ -1,17 +1,122 @@
-
 import React, { useState, useEffect } from 'react';
 import Card from './Card';
-import { getTableSchemas, createPrediction, getPredictionModels, deletePredictionModel } from '../services/api';
+import { getTableSchemas, createPrediction, getPredictionModels, deletePredictionModel, executeQuery } from '../services/api';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import type { PredictionModel } from '../types';
+
+const ModelView: React.FC<{ model: PredictionModel, onDelete: (id: string) => void }> = ({ model, onDelete }) => {
+    const [chartData, setChartData] = useState<any[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchData = async () => {
+            setIsLoading(true);
+            try {
+                const historyQuery = `SELECT "${model.dateColumn}" AS name, "${model.targetColumn}" AS actual FROM "${model.sourceTable}" ORDER BY name`;
+                const forecastQuery = `SELECT prediction_date AS name, predicted_value AS predicted FROM "${model.resultTable}" ORDER BY name`;
+                
+                const [historyRes, forecastRes] = await Promise.all([
+                    executeQuery(historyQuery),
+                    executeQuery(forecastQuery)
+                ]);
+
+                // FIX: Check for errors individually to allow TypeScript to narrow the types.
+                if ('error' in historyRes) {
+                    throw new Error(historyRes.error);
+                }
+                if ('error' in forecastRes) {
+                    throw new Error(forecastRes.error);
+                }
+                
+                const mergedData = [...historyRes.data];
+                const forecastMap = new Map(forecastRes.data.map(d => [d.name, d.predicted]));
+                
+                mergedData.forEach(d => {
+                    if (forecastMap.has(d.name)) {
+                        d.predicted = forecastMap.get(d.name);
+                        forecastMap.delete(d.name);
+                    }
+                });
+                
+                forecastMap.forEach((value, name) => {
+                    mergedData.push({ name, predicted: value });
+                });
+
+                setChartData(mergedData.sort((a, b) => a.name.localeCompare(b.name)));
+
+            } catch (error) {
+                console.error("Failed to fetch chart data for model:", model.name, error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        if (model.status === 'Ready' && model.resultTable) {
+            fetchData();
+        } else {
+            setIsLoading(false);
+        }
+    }, [model]);
+
+    const forecastStartIndex = chartData.findIndex(d => d.predicted !== undefined && d.actual === undefined);
+
+    return (
+        <Card>
+            <div className="flex justify-between items-start mb-2">
+                <div>
+                    <h2 className="text-xl font-bold text-white">{model.name}</h2>
+                    <p className="text-sm text-slate-400">Forecasting <span className="font-mono text-cyan-400">{model.targetColumn}</span> from <span className="font-mono text-cyan-400">{model.sourceTable}</span></p>
+                </div>
+                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${model.status === 'Ready' ? 'bg-green-500/20 text-green-300' : 'bg-yellow-500/20 text-yellow-300'}`}>
+                    {model.status}
+                </span>
+            </div>
+            
+            <div className="w-full h-72 my-4">
+                {isLoading ? (
+                    <div className="flex items-center justify-center h-full text-slate-400">Loading chart data...</div>
+                ) : chartData.length > 0 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                            <XAxis dataKey="name" stroke="#9ca3af" fontSize={12} tick={{ transform: 'translate(0, 5)' }} />
+                            <YAxis stroke="#9ca3af" fontSize={12} />
+                            <Tooltip contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151' }} />
+                            <Legend />
+                            <Line type="monotone" dataKey="actual" name="Historical" stroke="#818cf8" strokeWidth={2} dot={false} />
+                            <Line type="monotone" dataKey="predicted" name="Forecast" stroke="#06b6d4" strokeWidth={2} strokeDasharray="5 5" dot={false} />
+                            {forecastStartIndex > 0 && (
+                                <ReferenceLine x={chartData[forecastStartIndex].name} stroke="#f87171" strokeDasharray="3 3" label={{ value: 'Forecast Start', position: 'insideTop', fill: '#f87171' }} />
+                            )}
+                        </LineChart>
+                    </ResponsiveContainer>
+                ) : (
+                     <div className="flex items-center justify-center h-full text-slate-500">No data available for visualization.</div>
+                )}
+            </div>
+            
+             <div className="flex justify-between items-center text-sm text-slate-400 border-t border-slate-700/50 pt-4">
+                <div className="space-y-1">
+                    <p><strong>Created:</strong> {new Date(model.createdAt).toLocaleString()}</p>
+                    {model.accuracy && <p><strong>Simulated Accuracy:</strong> { (model.accuracy * 100).toFixed(1) }%</p>}
+                </div>
+                <button onClick={() => onDelete(model.id)} className="bg-red-800/80 hover:bg-red-700 text-white font-semibold px-3 py-1 rounded-md text-sm">Delete</button>
+            </div>
+        </Card>
+    );
+};
+
 
 const PredictiveAnalytics: React.FC = () => {
     const [models, setModels] = useState<PredictionModel[]>([]);
     const [view, setView] = useState<'list' | 'create'>('list');
+    const [isLoading, setIsLoading] = useState(true);
 
     const loadModels = async () => {
+        setIsLoading(true);
         const fetchedModels = await getPredictionModels();
         setModels(fetchedModels);
+        setIsLoading(false);
     };
 
     useEffect(() => {
@@ -45,26 +150,21 @@ const PredictiveAnalytics: React.FC = () => {
             </p>
 
             {view === 'list' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {models.map(model => (
-                        <Card key={model.id}>
-                            <div className="flex justify-between items-start mb-2">
-                                <h2 className="text-xl font-bold text-white">{model.name}</h2>
-                                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${model.status === 'Ready' ? 'bg-green-500/20 text-green-300' : 'bg-yellow-500/20 text-yellow-300'}`}>
-                                    {model.status}
-                                </span>
-                            </div>
-                            <div className="text-sm text-slate-400 space-y-1 mb-4">
-                                <p><strong>Source:</strong> <span className="font-mono">{model.sourceTable}</span></p>
-                                <p><strong>Target:</strong> <span className="font-mono">{model.targetColumn}</span></p>
-                                <p><strong>Created:</strong> {new Date(model.createdAt).toLocaleString()}</p>
-                                {model.accuracy && <p><strong>Accuracy:</strong> { (model.accuracy * 100).toFixed(1) }%</p>}
-                            </div>
-                            <div className="flex justify-end gap-2">
-                                <button onClick={() => handleModelDeleted(model.id)} className="bg-red-800/80 hover:bg-red-700 text-white font-semibold px-3 py-1 rounded-md text-sm">Delete</button>
-                            </div>
-                        </Card>
-                    ))}
+                <div className="space-y-6">
+                    {isLoading ? (
+                        <p className="text-slate-400">Loading models...</p>
+                    ) : models.length > 0 ? (
+                        models.map(model => (
+                           <ModelView key={model.id} model={model} onDelete={handleModelDeleted} />
+                        ))
+                    ) : (
+                         <div className="text-center py-12 border-2 border-dashed border-slate-700 rounded-lg">
+                            <p className="text-slate-400 mb-4">You haven't created any prediction models yet.</p>
+                            <button onClick={() => setView('create')} className="bg-cyan-500 text-white font-semibold px-4 py-2 rounded-lg hover:bg-cyan-600">
+                                Create Your First Model
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
             {view === 'create' && <CreateModelView onCancel={() => setView('list')} onCreated={handleModelCreated} />}
