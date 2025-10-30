@@ -328,15 +328,12 @@ export async function initializeDatabase(dbBytes?: Uint8Array): Promise<string> 
   // Initialize SQL.js library itself. This only needs to be done once.
   if (!SQL) {
     try {
-      // The manual fetch provides a robust way to load the wasm file, bypassing
-      // the library's internal logic which can fail in some environments.
-      const wasmUrl = 'https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.wasm';
-      const response = await fetch(wasmUrl);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch sql.js WASM module: ${response.statusText}`);
-      }
-      const wasmBinary = await response.arrayBuffer();
-      SQL = await initSqlJs({ wasmBinary });
+      // Initialize sql.js by providing a custom function to locate the wasm file.
+      // This is the official, most robust way to load sql.js in a browser environment,
+      // especially within a web worker, as it avoids issues with relative path resolution.
+      SQL = await initSqlJs({
+        locateFile: file => `https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/${file}`
+      });
     } catch (err) {
       console.error('Failed to initialize sql.js:', err);
       // Re-throw the error to be handled by the UI, preventing the app from
