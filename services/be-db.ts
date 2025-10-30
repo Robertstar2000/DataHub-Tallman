@@ -26,7 +26,7 @@ function getOrCreateWorker(): Worker | null {
     if (useFallback) return null;
 
     try {
-        const worker = new Worker('/services/db.worker.ts', { type: 'module' });
+        const worker = new Worker(new URL('./db.worker.ts', import.meta.url), { type: 'module' });
 
         worker.onmessage = (e: MessageEvent) => {
             const { id, result, error, action } = e.data;
