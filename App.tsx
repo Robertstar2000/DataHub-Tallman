@@ -35,8 +35,9 @@ const App: React.FC = () => {
       try {
         await initializeDatabase();
       } catch (err) {
-        console.error("Failed to initialize database:", err);
-        setDbError("Could not load the database. Some features might not work correctly.");
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        console.error("Failed to initialize database:", errorMessage, err);
+        setDbError(`Could not load the database. Some features might not work correctly. Error: ${errorMessage}`);
       } finally {
         setIsDbLoading(false);
       }

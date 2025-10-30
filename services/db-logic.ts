@@ -1,3 +1,4 @@
+
 // This file contains the core database logic, designed to be run either
 // within a Web Worker or directly on the main thread as a fallback.
 
@@ -332,7 +333,7 @@ export async function initializeDatabase(dbBytes?: Uint8Array): Promise<string> 
       // This is the official, most robust way to load sql.js in a browser environment,
       // especially within a web worker, as it avoids issues with relative path resolution.
       SQL = await initSqlJs({
-        locateFile: file => `https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/${file}`
+        locateFile: file => `https://unpkg.com/sql.js@1.10.3/dist/${file}`
       });
     } catch (err) {
       console.error('Failed to initialize sql.js:', err);
