@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { HistoryMessage } from '../AIAnalyst';

@@ -5,10 +5,13 @@ import { getTableSchemas, getPiiFindings, getDataAccessPolicies, saveDataAccessP
 import type { Role, PiiFinding, DataAccessPolicy } from '../types';
 import { useQuery, invalidateQuery } from '../hooks/useQuery';
 import { useGovernanceStore } from '../store/governanceStore';
+import { useUser } from '../contexts/UserContext';
+import { AccessDenied } from './common/AccessDenied';
 
 const ROLES: Role[] = ['Admin', 'Analyst', 'Viewer'];
 
 const DataGovernance: React.FC = () => {
+  const { isAdmin } = useUser();
   const [activeTab, setActiveTab] = useState<'policies' | 'pii'>('policies');
   
   const { data: initialPolicies, isLoading: isLoadingPolicies } = useQuery(['dataAccessPolicies'], getDataAccessPolicies);
@@ -29,6 +32,10 @@ const DataGovernance: React.FC = () => {
   };
   
   const isLoading = isLoadingPolicies || isLoadingSchemas;
+
+  if (!isAdmin) {
+      return <AccessDenied />;
+  }
 
   return (
     <div className="space-y-6">

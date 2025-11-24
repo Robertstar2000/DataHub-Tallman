@@ -1,6 +1,7 @@
 
 
 
+
 import * as beDb from './be-db';
 import * as beGemini from './be-gemini';
 import * as bePipelines from './be-pipelines';
@@ -19,6 +20,17 @@ const simulateLatency = (ms: number = 200) => new Promise(resolve => setTimeout(
 const logAuditEvent = (action: string, details: string) => {
     // In a real app, user might come from an auth context
     beDb.logAuditEvent({ user: 'Analyst', action, details });
+};
+
+// --- Environment Controls ---
+export const setDataSourceMode = async (mode: 'real' | 'test'): Promise<void> => {
+    await simulateLatency(100);
+    beDb.setDataSourceMode(mode);
+    logAuditEvent('SYSTEM_CONFIG', `Switched data source mode to: ${mode.toUpperCase()}`);
+};
+
+export const getDataSourceMode = (): 'real' | 'test' => {
+    return beDb.getDataSourceMode();
 };
 
 // --- DB API ---

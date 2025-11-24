@@ -11,9 +11,18 @@ import {
 } from '../services/api';
 import { useQuery, invalidateQuery } from '../hooks/useQuery';
 import Button from './common/Button';
+import { useUser } from '../contexts/UserContext';
+import { AccessDenied } from './common/AccessDenied';
 
-type DbStats = Awaited<ReturnType<typeof getDbStatistics>> | null;
-type VectorStats = Awaited<ReturnType<typeof getVectorStoreStats>> | null;
+interface DbStats {
+    tableCounts: Record<string, number>;
+    dbSizeBytes: number;
+}
+
+interface VectorStats {
+    documentCount: number;
+    vectorDimension: number;
+}
 
 const aiRecommendations = [
     { id: 1, type: 'Quality', text: "Column `contact_email` in `p21_customers` has 2 records with invalid email formats.", severity: 'warning' },
@@ -23,6 +32,7 @@ const aiRecommendations = [
 ];
 
 const DbMaintenance: React.FC = () => {
+  const { isAdmin } = useUser();
   const { data: dbStats, refetch: refetchDbStats } = useQuery<DbStats>(['dbStatistics'], getDbStatistics);
   const { data: vectorStats, refetch: refetchVectorStats } = useQuery<VectorStats>(['vectorStoreStats'], getVectorStoreStats);
   
@@ -34,6 +44,10 @@ const DbMaintenance: React.FC = () => {
     rebuild: false,
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  if (!isAdmin) {
+      return <AccessDenied />;
+  }
 
   const addLog = (message: string) => {
     setLogs(prev => [`${new Date().toLocaleTimeString()}: ${message}`, ...prev].slice(0, 100));
@@ -168,7 +182,7 @@ const DbMaintenance: React.FC = () => {
           </Card>
            <Card>
               <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m1.5-4.5V21m6-18v1.5m3.75-1.5v1.5m3.75 1.5v1.5m0 3.75v1.5m0 3.75v1.5m0 3.75v1.5M12 3v1.5m0 3.75v1.5m0 3.75v1.5m0 3.75v1.5" /></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-15 3.75H3m1.5-4.5V21m6-18v1.5m3.75-1.5v1.5m3.75 1.5v1.5m0 3.75v1.5m0 3.75v1.5M12 3v1.5m0 3.75v1.5m0 3.75v1.5m0 3.75v1.5" /></svg>
                 AI Data Steward
               </h2>
                <div className="space-y-2">

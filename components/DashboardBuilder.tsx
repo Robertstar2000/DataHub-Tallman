@@ -7,6 +7,7 @@ import { executeQuery, getDashboards, saveDashboard, deleteDashboard as apiDelet
 import { useQuery, invalidateQuery } from '../hooks/useQuery';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import Button from './common/Button';
+import { useUser } from '../contexts/UserContext';
 
 const CHART_TYPES: ChartType[] = ['Metric', 'Bar', 'Line', 'Pie'];
 const COLORS = ['#06b6d4', '#818cf8', '#f87171', '#fbbf24', '#a3e635', '#f472b6'];
@@ -98,6 +99,7 @@ const Widget: React.FC<{
 
 
 const DashboardBuilder: React.FC = () => {
+    const { canEdit } = useUser();
     const { data: dashboards = [], refetch: refetchDashboards } = useQuery<Dashboard[]>(['dashboards'], getDashboards);
     
     const [dashboardsState, setDashboardsState] = useState<Dashboard[]>([]);
@@ -180,12 +182,14 @@ const DashboardBuilder: React.FC = () => {
     
 
     const updateActiveDashboard = async (updatedDashboard: Dashboard) => {
+        if (!canEdit) return;
         setDashboardsState(prev => prev.map(d => d.id === updatedDashboard.id ? updatedDashboard : d));
         await saveDashboard(updatedDashboard);
         invalidateQuery(['dashboards']);
     }
 
     const handleAddDashboard = async () => {
+        if (!canEdit) return;
         const name = prompt("Enter new dashboard name:", "New Dashboard");
         if(name) {
             const newDashboard: Dashboard = {
@@ -203,6 +207,7 @@ const DashboardBuilder: React.FC = () => {
     }
     
     const handleDeleteDashboard = async () => {
+        if (!canEdit) return;
         if (!activeDashboard || !window.confirm(`Are you sure you want to delete "${activeDashboard.name}"?`)) return;
         
         await apiDeleteDashboard(activeDashboard.id);
@@ -232,13 +237,14 @@ const DashboardBuilder: React.FC = () => {
     }
 
     const handleDragStart = (e: React.DragEvent, widgetId: string) => {
+        if (!canEdit) return;
         draggedWidgetId.current = widgetId;
         e.dataTransfer.effectAllowed = 'move';
     }
 
     const handleDrop = (e: React.DragEvent, targetWidgetId: string) => {
         e.preventDefault();
-        if (!activeDashboard || !draggedWidgetId.current) return;
+        if (!activeDashboard || !draggedWidgetId.current || !canEdit) return;
 
         const widgets = [...activeDashboard.widgets];
         const draggedIndex = widgets.findIndex(w => w.id === draggedWidgetId.current);
@@ -267,7 +273,9 @@ const DashboardBuilder: React.FC = () => {
                         {db.name}
                     </button>
                 ))}
-                <button onClick={handleAddDashboard} className="px-3 py-1 ml-2 text-sm rounded-full bg-slate-700 hover:bg-slate-600 text-slate-300">+</button>
+                {canEdit && (
+                    <button onClick={handleAddDashboard} className="px-3 py-1 ml-2 text-sm rounded-full bg-slate-700 hover:bg-slate-600 text-slate-300">+</button>
+                )}
             </div>
             
             {activeDashboard ? (
@@ -286,15 +294,17 @@ const DashboardBuilder: React.FC = () => {
                                 </>
                             )}
                         </div>
-                        <div className="space-x-2">
-                           {isEditing ? (
-                               <Button variant="primary" onClick={() => setIsEditing(false)}>Done</Button>
-                           ) : (
-                                <Button variant="secondary" onClick={() => setIsEditing(true)}>Edit</Button>
-                           )}
-                           {isEditing && <Button variant="secondary" onClick={() => setIsWidgetModalOpen(true)}>+ Add Widget</Button>}
-                           {isEditing && <Button variant="danger" onClick={handleDeleteDashboard}>Delete Dashboard</Button>}
-                        </div>
+                        {canEdit && (
+                            <div className="space-x-2">
+                            {isEditing ? (
+                                <Button variant="primary" onClick={() => setIsEditing(false)}>Done</Button>
+                            ) : (
+                                    <Button variant="secondary" onClick={() => setIsEditing(true)}>Edit</Button>
+                            )}
+                            {isEditing && <Button variant="secondary" onClick={() => setIsWidgetModalOpen(true)}>+ Add Widget</Button>}
+                            {isEditing && <Button variant="danger" onClick={handleDeleteDashboard}>Delete Dashboard</Button>}
+                            </div>
+                        )}
                     </div>
                     
                     <div className="flex-grow overflow-y-auto pr-4 -mr-4">
@@ -325,9 +335,11 @@ const DashboardBuilder: React.FC = () => {
                             <div className="flex items-center justify-center h-full border-2 border-dashed border-slate-700 rounded-lg">
                                 <div className="text-center">
                                     <p className="text-slate-400 mb-4">This dashboard is empty.</p>
-                                    <Button variant="primary" onClick={() => { setIsEditing(true); setIsWidgetModalOpen(true); }}>
-                                        + Add Your First Widget
-                                    </Button>
+                                    {canEdit && (
+                                        <Button variant="primary" onClick={() => { setIsEditing(true); setIsWidgetModalOpen(true); }}>
+                                            + Add Your First Widget
+                                        </Button>
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -337,9 +349,11 @@ const DashboardBuilder: React.FC = () => {
                  <div className="flex items-center justify-center h-full border-2 border-dashed border-slate-700 rounded-lg">
                     <div className="text-center">
                         <p className="text-slate-400 mb-4">You have no dashboards.</p>
-                        <Button variant="primary" onClick={handleAddDashboard}>
-                            Create Your First Dashboard
-                        </Button>
+                        {canEdit && (
+                            <Button variant="primary" onClick={handleAddDashboard}>
+                                Create Your First Dashboard
+                            </Button>
+                        )}
                     </div>
                 </div>
             )}

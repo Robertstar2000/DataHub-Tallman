@@ -4,7 +4,7 @@ import Card from './Card';
 import { getLoadedMcpServers } from '../services/api';
 import type { McpServer, OtherInterface } from '../types';
 import { mcpFunctions } from '../data/mcpFunctions';
-import { otherInterfaces, interfaceIcons } from '../data/mcpServers';
+import { otherInterfaces } from '../data/mcpServers';
 import { useQuery } from '../hooks/useQuery';
 
 // Mock data and types
@@ -49,6 +49,15 @@ const generateMockLog = (mcpName: string, type: 'uploads' | 'downloads'): { log:
     };
     
     return { log, functionName: selectedFunction.name };
+};
+
+// Defined locally to avoid importing React in data files used by Workers
+const interfaceIcons: Record<OtherInterface['type'], React.ReactNode> = {
+    'API': <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-indigo-400"><path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5 0l-4.5 16.5" /></svg>,
+    'EDI': <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-emerald-400"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>,
+    'File Transfer': <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-sky-400"><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 9.75h16.5m-16.5 4.5h16.5m-16.5 4.5h16.5m-16.5-1.5a1.5 1.5 0 01-1.5-1.5V6.75a1.5 1.5 0 011.5-1.5h16.5a1.5 1.5 0 011.5 1.5v6.75a1.5 1.5 0 01-1.5 1.5H3.75z" /></svg>,
+    'Direct DB': <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-rose-400"><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375" /></svg>,
+    'Shop Floor': <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-amber-400"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12a7.5 7.5 0 0015 0m-15 0a7.5 7.5 0 1115 0m-15 0H3m18 0h-1.5m-15 0a7.5 7.5 0 1115 0m-15 0H3m15-9.75l-4.243 4.243m0 0a1.5 1.5 0 01-2.121 0l-4.243-4.243m6.364 0l-4.243 4.243m0 0a1.5 1.5 0 01-2.121 0l-4.243-4.243m6.364 0l-4.243 4.243m0 0a1.5 1.5 0 01-2.121 0l-4.243-4.243m6.364 0l-4.243 4.243m0 0a1.5 1.5 0 01-2.121 0l-4.243-4.243" /></svg>,
 };
 
 const InterfaceList: React.FC = () => (

@@ -1,6 +1,7 @@
 
 import React from 'react';
 import type { View } from '../App';
+import { useUser } from '../contexts/UserContext';
 
 interface SidebarProps {
   currentView: View;
@@ -37,6 +38,8 @@ const NavItem: React.FC<{
 };
 
 const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, onOpenDocModal }) => {
+  const { currentUser, allUsers, setCurrentUser } = useUser();
+
   return (
     <aside className="w-64 bg-slate-800/50 p-4 border-r border-slate-700/50 flex flex-col">
       <div className="flex items-center mb-8 flex-shrink-0">
@@ -126,6 +129,22 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, onOpenDo
             </li>
         </ul>
       </nav>
+      {/* User Switcher for Simulation */}
+      <div className="mt-4 pt-4 border-t border-slate-700/50">
+        <label className="block text-xs text-slate-500 uppercase tracking-wider mb-2 font-semibold">Simulate User</label>
+        <select
+            value={currentUser?.id || ''}
+            onChange={(e) => {
+                const user = allUsers.find(u => u.id === Number(e.target.value));
+                if (user) setCurrentUser(user);
+            }}
+            className="w-full bg-slate-900 border border-slate-600 rounded-md px-2 py-1 text-xs text-slate-300 focus:ring-1 focus:ring-cyan-500"
+        >
+            {allUsers.map(u => (
+                <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+            ))}
+        </select>
+      </div>
     </aside>
   );
 };

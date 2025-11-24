@@ -1,11 +1,12 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import Card from './Card';
-import { getWorkflows, getUsers, saveUser, deleteUser } from '../services/api';
+import { getWorkflows, getUsers, saveUser, deleteUser, setDataSourceMode, getDataSourceMode, runMaintenance, rebuildVectorStore, executeWorkflow } from '../services/api';
 import type { WorkflowStatus, Workflow, User, Role } from '../types';
 import { useQuery, invalidateQuery } from '../hooks/useQuery';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import Button from './common/Button';
+import { useUser } from '../contexts/UserContext';
 
 interface Policy {
   id: string;
@@ -105,27 +106,54 @@ const AddUserModal: React.FC<{
 
 
 const DlControls: React.FC = () => {
+  const { isAdmin, refreshUsers } = useUser();
   const { data: users = [], refetch: refetchUsers } = useQuery<User[]>(['users'], getUsers);
   const [usersState, setUsersState] = useState<User[]>([]);
 
   const [policies, setPolicies] = useState<Policy[]>(mockPolicies);
   const [optimizing, setOptimizing] = useState(false);
+  const [processing, setProcessing] = useState(false); // State for manual cycle
   const { data: workflows = [] } = useQuery<Workflow[]>(['workflows'], getWorkflows);
   const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false);
+  const [isTestMode, setIsTestMode] = useState(getDataSourceMode() === 'test');
 
   useEffect(() => {
     setUsersState(users);
   }, [users]);
   
+  useEffect(() => {
+      // Sync local state if changed externally (though usually only changed here)
+      setIsTestMode(getDataSourceMode() === 'test');
+  }, []);
+
+  const handleModeToggle = async () => {
+      const newMode = isTestMode ? 'real' : 'test';
+      await setDataSourceMode(newMode);
+      setIsTestMode(newMode === 'test');
+  };
 
   const handleRoleChange = async (userId: number, newRole: Role) => {
+    if (!isAdmin) {
+        alert("Access Denied: Only Admins can change user roles.");
+        return;
+    }
+
+    // Check if we are changing the last admin to non-admin
     const userToUpdate = usersState.find(u => u.id === userId);
+    const adminCount = usersState.filter(u => u.role === 'Admin').length;
+    
+    if (userToUpdate?.role === 'Admin' && newRole !== 'Admin' && adminCount <= 1) {
+        alert("Operation Failed: You cannot remove the last Administrator.");
+        return;
+    }
+
     if (userToUpdate) {
         const updatedUser = { ...userToUpdate, role: newRole };
         setUsersState(usersState.map(u => (u.id === userId ? updatedUser : u)));
         try {
             await saveUser(updatedUser);
             invalidateQuery(['users']);
+            refreshUsers(); // Sync context
         } catch (e) {
             alert(`Failed to update user role: ${e instanceof Error ? e.message : String(e)}`);
             console.error("Error updating user role:", e);
@@ -135,6 +163,7 @@ const DlControls: React.FC = () => {
   };
 
   const handlePolicyToggle = (policyId: string) => {
+    if (!isAdmin) return; // Simple guard, though UI should ideally disable it
     setPolicies(policies.map(p => (p.id === policyId ? { ...p, enabled: !p.enabled } : p)));
   };
   
@@ -143,7 +172,44 @@ const DlControls: React.FC = () => {
       setTimeout(() => setOptimizing(false), 1500);
   }
 
+  const handleRunProcessingCycle = async () => {
+      setProcessing(true);
+      try {
+          // 1. Find key workflows to run (simulation of a scheduler)
+          // In a real app, this would likely call a backend endpoint to run due schedules.
+          // Here we explicitly run ingestion and analytics to ensure data changes.
+          const allWorkflows = await getWorkflows();
+          const ingestionWf = allWorkflows.find(w => w.id === 'wf-ingest-p21-orders');
+          const analyticsWf = allWorkflows.find(w => w.id === 'wf-calculate-daily-metrics');
+
+          const dummyLog = (msg: string) => console.log(`[Background Cycle]: ${msg}`);
+
+          if (ingestionWf) {
+             await executeWorkflow(ingestionWf, dummyLog);
+          }
+          if (analyticsWf) {
+             await executeWorkflow(analyticsWf, dummyLog);
+          }
+
+          // 2. Maintenance & Indexing
+          await runMaintenance();
+          await rebuildVectorStore();
+          
+          // 3. Refresh global queries so Dashboard updates immediately
+          invalidateQuery(['dashboardStats']);
+          invalidateQuery(['dbStatistics']);
+          invalidateQuery(['vectorStoreStats']);
+
+          alert("Full processing cycle completed: Data ingested, metrics calculated, and indexes rebuilt.");
+      } catch (e: any) {
+          alert(`Processing failed: ${e.message}`);
+      } finally {
+          setProcessing(false);
+      }
+  }
+
   const handleSaveNewUser = async (name: string, email: string) => {
+    if (!isAdmin) return;
     try {
         const newUser: User = {
           id: Date.now(),
@@ -153,6 +219,7 @@ const DlControls: React.FC = () => {
         };
         await saveUser(newUser);
         invalidateQuery(['users']);
+        refreshUsers();
         setIsAddUserModalOpen(false);
     } catch (e) {
         alert(`Failed to add user: ${e instanceof Error ? e.message : String(e)}`);
@@ -161,12 +228,27 @@ const DlControls: React.FC = () => {
   };
 
   const handleDeleteUser = async (userId: number) => {
+    if (!isAdmin) {
+        alert("Access Denied: Only Admins can delete users.");
+        return;
+    }
+
     const userToDelete = usersState.find(u => u.id === userId);
-    if (userToDelete && window.confirm(`Are you sure you want to delete user "${userToDelete.name}"?`)) {
+    if (!userToDelete) return;
+
+    const adminCount = usersState.filter(u => u.role === 'Admin').length;
+    if (userToDelete.role === 'Admin' && adminCount <= 1) {
+        alert("Operation Failed: You cannot delete the last Administrator.");
+        return;
+    }
+
+    if (window.confirm(`Are you sure you want to delete user "${userToDelete.name}"? This action cannot be undone.`)) {
         try {
-            setUsersState(usersState.filter(u => u.id !== userId));
+            // Optimistic update
+            setUsersState(prev => prev.filter(u => u.id !== userId));
             await deleteUser(userId);
             invalidateQuery(['users']);
+            refreshUsers();
         } catch (e) {
             alert(`Failed to delete user: ${e instanceof Error ? e.message : String(e)}`);
             console.error("Error deleting user:", e);
@@ -190,57 +272,39 @@ const DlControls: React.FC = () => {
       </p>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* User Management */}
-        <Card className="flex flex-col">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold text-white">User & Access Management</h2>
-            <button onClick={() => setIsAddUserModalOpen(true)} className="flex items-center justify-center w-8 h-8 text-lg rounded-md bg-slate-600 hover:bg-slate-500 text-white font-semibold">+</button>
-          </div>
-          <div className="flex-grow overflow-y-auto space-y-2 win-scrollbar pr-2" style={{maxHeight: '250px'}}>
-            {usersState.map(user => (
-              <div key={user.id} className="flex items-center justify-between p-2 bg-slate-900/50 rounded-lg">
-                <div>
-                  <p className="font-semibold text-slate-200">{user.name}</p>
-                  <p className="text-sm text-slate-400">{user.email}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                    <select
-                      value={user.role}
-                      onChange={e => handleRoleChange(user.id, e.target.value as Role)}
-                      className="bg-slate-700 border border-slate-600 rounded-md px-2 py-1 text-sm text-white focus:ring-2 focus:ring-cyan-500 focus:outline-none"
+        {/* System Environment */}
+        <Card className="flex flex-col justify-between border-l-4 border-cyan-500">
+            <div>
+                <div className="flex justify-between items-start mb-2">
+                    <h2 className="text-xl font-bold text-white">System Environment</h2>
+                    <Button 
+                        variant="secondary" 
+                        onClick={handleRunProcessingCycle} 
+                        disabled={processing}
+                        className="text-xs py-1 px-3"
                     >
-                      <option>Admin</option>
-                      <option>Analyst</option>
-                      <option>Viewer</option>
-                    </select>
-                     <Button variant="danger" onClick={() => handleDeleteUser(user.id)} aria-label={`Delete user ${user.name}`} className="w-8 h-8 p-0 flex-shrink-0 flex items-center justify-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
+                        {processing ? 'Processing...' : 'Run Processing Cycle'}
                     </Button>
                 </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-
-        {/* Data Governance */}
-        <Card className="flex flex-col">
-          <h2 className="text-xl font-bold text-white mb-4">Global Data Policies</h2>
-           <div className="flex-grow overflow-y-auto pr-2 -mr-2 space-y-3">
-            {policies.map(policy => (
-                <div key={policy.id} className="flex items-center justify-between p-2 bg-slate-900/50 rounded-lg">
-                    <p className="text-slate-300 mr-4">{policy.name}</p>
-                    <ToggleSwitch enabled={policy.enabled} onChange={() => handlePolicyToggle(policy.id)} />
+                <p className="text-sm text-slate-400 mb-4">
+                    Toggle between simulating connections to live external systems (Real) or using the internal Test Server for data generation.
+                </p>
+            </div>
+            <div className="flex items-center justify-between p-4 bg-slate-900/50 rounded-lg">
+                <div className="flex items-center gap-3">
+                    <div className={`w-3 h-3 rounded-full ${isTestMode ? 'bg-yellow-400' : 'bg-green-500'} animate-pulse`}></div>
+                    <div>
+                        <p className="font-semibold text-white">{isTestMode ? 'Test Server Mode' : 'Real External Data'}</p>
+                        <p className="text-xs text-slate-400">{isTestMode ? 'Generating simulated traffic' : 'Connecting to live endpoints'}</p>
+                    </div>
                 </div>
-            ))}
-          </div>
+                <ToggleSwitch enabled={isTestMode} onChange={handleModeToggle} />
+            </div>
         </Card>
 
         {/* Pipeline Oversight */}
         <Card>
             <h2 className="text-xl font-bold text-white mb-4">Workflow Oversight</h2>
-            <p className="text-sm text-slate-400 mb-4">A high-level overview of all data workflows across the system.</p>
             <div className="flex justify-around text-center">
                 <div>
                     <p className="text-4xl font-bold text-green-400">{workflowStatusCounts.Live || 0}</p>
@@ -255,9 +319,58 @@ const DlControls: React.FC = () => {
                     <p className="text-slate-400">On Hold</p>
                 </div>
             </div>
-            <p className="text-xs text-center mt-4 text-slate-500">
-                These statuses reflect the operational state of data flows from sources to destinations.
-            </p>
+        </Card>
+
+        {/* User Management */}
+        <Card className="flex flex-col">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold text-white">User & Access Management</h2>
+            {isAdmin && (
+                <button onClick={() => setIsAddUserModalOpen(true)} className="flex items-center justify-center w-8 h-8 text-lg rounded-md bg-slate-600 hover:bg-slate-500 text-white font-semibold shadow-md transition-transform hover:scale-105" title="Add User">+</button>
+            )}
+          </div>
+          <div className="flex-grow overflow-y-auto space-y-2 win-scrollbar pr-2" style={{maxHeight: '250px'}}>
+            {usersState.map(user => (
+              <div key={user.id} className="flex items-center justify-between p-2 bg-slate-900/50 rounded-lg border border-slate-700/30 hover:border-slate-600 transition-colors">
+                <div>
+                  <p className="font-semibold text-slate-200">{user.name}</p>
+                  <p className="text-sm text-slate-400">{user.email}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <select
+                      value={user.role}
+                      disabled={!isAdmin}
+                      onChange={e => handleRoleChange(user.id, e.target.value as Role)}
+                      className="bg-slate-700 border border-slate-600 rounded-md px-2 py-1 text-sm text-white focus:ring-2 focus:ring-cyan-500 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <option>Admin</option>
+                      <option>Analyst</option>
+                      <option>Viewer</option>
+                    </select>
+                     {isAdmin && (
+                        <Button variant="danger" onClick={() => handleDeleteUser(user.id)} aria-label={`Delete user ${user.name}`} className="w-8 h-8 p-0 flex-shrink-0 flex items-center justify-center" title="Delete User">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                        </Button>
+                     )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        {/* Data Governance */}
+        <Card className="flex flex-col">
+          <h2 className="text-xl font-bold text-white mb-4">Global Data Policies</h2>
+           <div className="flex-grow overflow-y-auto pr-2 -mr-2 space-y-3">
+            {policies.map(policy => (
+                <div key={policy.id} className="flex items-center justify-between p-2 bg-slate-900/50 rounded-lg">
+                    <p className="text-slate-300 mr-4">{policy.name}</p>
+                    <ToggleSwitch enabled={policy.enabled} onChange={() => isAdmin ? handlePolicyToggle(policy.id) : alert("Only Admins can change global policies.")} />
+                </div>
+            ))}
+          </div>
         </Card>
 
         {/* Compute Usage */}

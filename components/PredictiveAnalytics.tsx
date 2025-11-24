@@ -151,6 +151,7 @@ const CreateModelView: React.FC<{ onCancel: () => void, onCreated: () => void }>
     const [sourceTable, setSourceTable] = useState('');
     const [targetColumn, setTargetColumn] = useState('');
     const [dateColumn, setDateColumn] = useState('');
+    const [error, setError] = useState<string | null>(null);
     
     const { data: schemas, isLoading: isLoadingSchemas } = useQuery(['tableSchemas'], getTableSchemas);
     
@@ -176,25 +177,41 @@ const CreateModelView: React.FC<{ onCancel: () => void, onCreated: () => void }>
 
     const handleTrainModel = async () => {
         if (!modelName || !sourceTable || !targetColumn || !dateColumn) {
-            alert("Please fill all fields.");
+            setError("Please fill all fields.");
             return;
         }
+        
+        // Start the training process
         setIsTraining(true);
+        setError(null);
         setTrainingStatus("Initializing model...");
         
-        const modelData = { name: modelName, sourceTable, targetColumn, dateColumn };
+        try {
+            // Helper for delay
+            const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
-        setTimeout(() => setTrainingStatus("Analyzing historical data..."), 1000);
-        setTimeout(() => setTrainingStatus("Training forecasting model... (this is a simulation)"), 2500);
-        
-        await createPrediction(modelData);
-        invalidateQuery(['predictionModels']);
-        
-        setTimeout(() => {
+            await delay(800);
+            setTrainingStatus("Analyzing historical data...");
+            
+            await delay(800);
+            setTrainingStatus("Training forecasting model... (this is a simulation)");
+            
+            const modelData = { name: modelName, sourceTable, targetColumn, dateColumn };
+            // This API call handles the actual logic and has its own internal simulated latency
+            await createPrediction(modelData);
+            invalidateQuery(['predictionModels']);
+            
             setTrainingStatus("Model trained successfully!");
-            setIsTraining(false);
+            await delay(500);
+            
+            // Navigate away or reset; don't set isTraining(false) if unmounting via onCreated
             onCreated();
-        }, 4000);
+        } catch (e: any) {
+            console.error("Training failed", e);
+            setTrainingStatus(`Error: ${e.message || 'Failed to train model.'}`);
+            setError(e.message || 'Failed to train model.');
+            setIsTraining(false);
+        }
     };
 
     return (
@@ -204,25 +221,25 @@ const CreateModelView: React.FC<{ onCancel: () => void, onCreated: () => void }>
                 <div className="space-y-4">
                     <div>
                         <label className="block text-slate-400 mb-1">Model Name</label>
-                        <input value={modelName} onChange={e => setModelName(e.target.value)} placeholder="e.g., Q4 Revenue Forecast" className="w-full bg-slate-700 input-style" />
+                        <input value={modelName} onChange={e => setModelName(e.target.value)} placeholder="e.g., Q4 Revenue Forecast" className="w-full bg-slate-700 input-style" disabled={isTraining} />
                     </div>
                     <div>
                         <label className="block text-slate-400 mb-1">Source Table</label>
-                        <select value={sourceTable} onChange={e => setSourceTable(e.target.value)} className="w-full bg-slate-700 input-style">
+                        <select value={sourceTable} onChange={e => setSourceTable(e.target.value)} className="w-full bg-slate-700 input-style" disabled={isTraining}>
                             <option value="">{isLoadingSchemas ? 'Loading tables...' : 'Select a table...'}</option>
                             {allTables.map(t => <option key={t} value={t}>{t}</option>)}
                         </select>
                     </div>
                     <div>
                         <label className="block text-slate-400 mb-1">Target Column (to predict)</label>
-                        <select value={targetColumn} onChange={e => setTargetColumn(e.target.value)} disabled={!sourceTable} className="w-full bg-slate-700 input-style">
+                        <select value={targetColumn} onChange={e => setTargetColumn(e.target.value)} disabled={!sourceTable || isTraining} className="w-full bg-slate-700 input-style">
                              <option value="">Select a column...</option>
                             {columns.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
                     </div>
                      <div>
                         <label className="block text-slate-400 mb-1">Date/Time Column</label>
-                        <select value={dateColumn} onChange={e => setDateColumn(e.target.value)} disabled={!sourceTable} className="w-full bg-slate-700 input-style">
+                        <select value={dateColumn} onChange={e => setDateColumn(e.target.value)} disabled={!sourceTable || isTraining} className="w-full bg-slate-700 input-style">
                              <option value="">Select a column...</option>
                             {columns.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
@@ -244,13 +261,14 @@ const CreateModelView: React.FC<{ onCancel: () => void, onCreated: () => void }>
                              <Button onClick={handleTrainModel}>
                                 Train Model
                             </Button>
+                            {error && <p className="text-red-400 text-sm mt-3 animate-pulse">{error}</p>}
                         </div>
                     )}
                  </div>
             </div>
 
              <div className="flex justify-end gap-4 pt-6 mt-6 border-t border-slate-700/50">
-                <Button variant="secondary" onClick={onCancel}>Cancel</Button>
+                <Button variant="secondary" onClick={onCancel} disabled={isTraining}>Cancel</Button>
             </div>
              <style>{`.input-style { @apply border border-slate-600 rounded-lg px-4 py-2 text-white disabled:opacity-50; }`}</style>
         </Card>

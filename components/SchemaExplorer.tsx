@@ -6,6 +6,7 @@ import type { McpServer, Workflow, Dashboard } from '../types';
 import { useQuery, invalidateQuery } from '../hooks/useQuery';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import Button from './common/Button';
+import AddSqlToSchemaModal from './AddSqlToSchemaModal';
 
 interface SchemaField {
   name: string;
@@ -221,7 +222,8 @@ const SchemaExplorer: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedSchema, setSelectedSchema] = useState<Schema | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isAddTableModalOpen, setIsAddTableModalOpen] = useState(false);
+  const [isSqlPipelineModalOpen, setIsSqlPipelineModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'details' | 'lineage'>('details');
   
   const schemas = useMemo<Schema[]>(() => {
@@ -273,13 +275,22 @@ const SchemaExplorer: React.FC = () => {
                 Explore the live database schema, track data lineage to its source MCP, and simulate new table ingestions.
             </p>
         </div>
-        <Button
-            onClick={() => setIsModalOpen(true)}
-            disabled={loadedMcps.length === 0}
-            title={loadedMcps.length === 0 ? "Load an MCP in the MCP tab first" : "Extract a new table from a connected MCP"}
-        >
-            + Extract Table from MCP
-        </Button>
+        <div className="flex gap-2">
+            <Button 
+                onClick={() => setIsSqlPipelineModalOpen(true)} 
+                variant="secondary"
+                title="Define a transformation pipeline using SQL"
+            >
+                + Add SQL Pipeline
+            </Button>
+            <Button
+                onClick={() => setIsAddTableModalOpen(true)}
+                disabled={loadedMcps.length === 0}
+                title={loadedMcps.length === 0 ? "Load an MCP in the MCP tab first" : "Extract a new table from a connected MCP"}
+            >
+                + Extract Table from MCP
+            </Button>
+        </div>
       </div>
       <div className="flex-grow grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-0">
         <Card className="lg:col-span-1 flex flex-col">
@@ -389,9 +400,13 @@ const SchemaExplorer: React.FC = () => {
       </div>
       <AddTableModal 
         mcpServers={loadedMcps}
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        isOpen={isAddTableModalOpen}
+        onClose={() => setIsAddTableModalOpen(false)}
         onAdd={handleAddTable}
+      />
+      <AddSqlToSchemaModal
+        isOpen={isSqlPipelineModalOpen}
+        onClose={() => setIsSqlPipelineModalOpen(false)}
       />
     </div>
   );

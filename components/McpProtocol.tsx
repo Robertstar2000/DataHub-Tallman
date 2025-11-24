@@ -6,6 +6,9 @@ import type { McpServer, McpServerType } from '../types';
 import { useQuery, invalidateQuery } from '../hooks/useQuery';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import Button from './common/Button';
+import { initialMcpServers, marketplaceMcpServers } from '../data/mcpServers';
+import { useUser } from '../contexts/UserContext';
+import { AccessDenied } from './common/AccessDenied';
 
 const generateMcpCode = (server: McpServer): string => {
     let endpoints = [];
@@ -13,7 +16,14 @@ const generateMcpCode = (server: McpServer): string => {
         endpoints = [
             { path: "/customers", methods: ["GET"], description: "Fetch customer data" },
             { path: "/orders", methods: ["GET", "POST"], description: "Fetch and create sales orders" },
-            { path: "/inventory", methods: ["GET"], description: "Fetch item stock levels" }
+            { path: "/inventory", methods: ["GET"], description: "Fetch item stock levels" },
+            { path: "/query", methods: ["POST"], description: "Execute SQL Query", schema: { input: "sql_string", output: "json" } }
+        ];
+    } else if (server.name.toLowerCase().includes('rental') || server.name.toLowerCase().includes('por')) {
+        endpoints = [
+            { path: "/assets", methods: ["GET"], description: "Fetch rental assets" },
+            { path: "/contracts", methods: ["GET"], description: "Fetch active contracts" },
+            { path: "/query", methods: ["POST"], description: "Execute MS Jet SQL Query", schema: { input: "ms_jet_sql", output: "json" } }
         ];
     } else if (server.name.toLowerCase().includes('wordpress') || server.name.toLowerCase().includes('cms')) {
         endpoints = [
@@ -154,14 +164,14 @@ const AddServerWizard: React.FC<{ isOpen: boolean, onClose: () => void, onAdd: (
 };
 
 const MarketplaceCard: React.FC<{ server: McpServer, onInstall: (server: McpServer) => void }> = ({ server, onInstall }) => (
-    <div className="p-4 bg-slate-900/50 rounded-lg flex flex-col justify-between">
+    <div className="p-4 bg-slate-900/50 rounded-lg flex flex-col justify-between border border-slate-700/50 hover:border-cyan-500/50 transition-colors">
         <div>
             <p className="font-semibold text-slate-200">{server.name}</p>
             <p className="text-xs font-semibold uppercase text-cyan-400 mb-2">{server.category}</p>
             <p className="text-sm text-slate-400 mb-3">{server.description}</p>
         </div>
         <Button
-            variant="secondary"
+            variant={server.isInstalled ? 'secondary' : 'primary'}
             onClick={() => onInstall(server)}
             disabled={server.isInstalled}
             className="w-full mt-2 text-sm"
@@ -171,23 +181,45 @@ const MarketplaceCard: React.FC<{ server: McpServer, onInstall: (server: McpServ
     </div>
 );
 
+// Extended list for "Find Additional MCPs" simulation
+const extraMarketplaceMcps: Omit<McpServer, 'id' | 'isLoaded'>[] = [
+    { name: 'Salesforce CRM', url: 'mcp://api.salesforce.com', description: 'Connect to Salesforce Cloud objects.', type: 'Marketplace', isInstalled: false, category: 'CRM' },
+    { name: 'Jira Software', url: 'mcp://api.atlassian.com', description: 'Project tracking and issue management.', type: 'Marketplace', isInstalled: false, category: 'Support' },
+    { name: 'Stripe', url: 'mcp://api.stripe.com', description: 'Payment processing integration.', type: 'Marketplace', isInstalled: false, category: 'Finance' },
+    { name: 'Magento', url: 'mcp://api.magento.com', description: 'Open source e-commerce platform.', type: 'Marketplace', isInstalled: false, category: 'eCommerce' },
+    { name: 'Intercom', url: 'mcp://api.intercom.io', description: 'Customer messaging platform.', type: 'Marketplace', isInstalled: false, category: 'Support' },
+    { name: 'ServiceNow', url: 'mcp://api.servicenow.com', description: 'Enterprise IT service management.', type: 'Marketplace', isInstalled: false, category: 'Support' },
+    { name: 'Oracle NetSuite', url: 'mcp://api.netsuite.com', description: 'Cloud business management suite.', type: 'Marketplace', isInstalled: false, category: 'Finance' },
+];
 
 const McpProtocol: React.FC = () => {
+    const { isAdmin } = useUser();
     const { data: allServers = [], isLoading, refetch } = useQuery<McpServer[]>(['mcpServers'], getMcpServers);
     const [allServersState, setAllServersState] = useState<McpServer[]>([]);
     
     const [activeTab, setActiveTab] = useState<'library' | 'marketplace'>('library');
     const [isWizardOpen, setIsWizardOpen] = useState(false);
+    const [isConfiguring, setIsConfiguring] = useState(false);
+
+    // Marketplace Search State
+    const [searchTerm, setSearchTerm] = useState('');
+    const [isSearchingRegistry, setIsSearchingRegistry] = useState(false);
 
     useEffect(() => {
         setAllServersState(allServers);
     }, [allServers]);
 
+    if (!isAdmin) {
+        return <AccessDenied />;
+    }
+
     const handleInstallMarketplace = async (serverToInstall: McpServer) => {
-        const installedServer = { ...serverToInstall, isInstalled: true, type: serverToInstall.category as McpServerType, isLoaded: true };
+        // When installing, mark as installed and loaded, but preserve the original type (Marketplace or Official)
+        const installedServer = { ...serverToInstall, isInstalled: true, isLoaded: true };
         setAllServersState(prev => prev.map(s => s.id === installedServer.id ? installedServer : s));
         await saveMcpServer(installedServer);
         invalidateQuery(['mcpServers']);
+        invalidateQuery(['loadedMcpServers']);
     }
     
     const handleToggleLoad = async (server: McpServer) => {
@@ -211,9 +243,131 @@ const McpProtocol: React.FC = () => {
         setIsWizardOpen(false);
     };
 
-    const libraryServers = allServersState.filter(s => s.type === 'Official' && s.isInstalled);
+    const handleAutoConfigure = async () => {
+        setIsConfiguring(true);
+        
+        try {
+            // 1. Create Epicore P21 MCP
+            const p21Server: McpServer = {
+                id: `p21-sql-adapter-${Date.now()}`,
+                name: 'Epicore P21 SQL Interface',
+                url: 'mcp://p21.internal:1433',
+                type: 'Custom',
+                description: 'Direct interface to Epicore P21 ERP. Accepts ANSI SQL queries for reading data and returns results in standard JSON format.',
+                isLoaded: true,
+                isInstalled: true
+            };
+
+            // 2. Create Point of Rental (POR) MCP
+            const porServer: McpServer = {
+                id: `por-jet-adapter-${Date.now()}`,
+                name: 'Point of Rental (POR) Jet Interface',
+                url: 'mcp://por.internal:3050',
+                type: 'Custom',
+                description: 'Interface for Point of Rental database. Accepts Microsoft Jet variant SQL queries and returns results in standard JSON format.',
+                isLoaded: true,
+                isInstalled: true
+            };
+
+            // 3. Lookup and Load Library MCPs that match schema needs
+            // In this simulation, we assume the app needs Teams, Drive, and standard connectors.
+            const libraryMatches = initialMcpServers.map((s, i) => ({
+                ...s,
+                id: `lib-server-${i}`, 
+                isLoaded: true,
+                isInstalled: true,
+                type: 'Official' as const
+            }));
+
+            // Batch updates
+            const newServers = [...allServersState];
+            
+            // Add P21 if not exists (by name check to avoid dups on multiple clicks)
+            if (!newServers.some(s => s.name.includes('Epicore P21 SQL'))) {
+                newServers.push(p21Server);
+                await saveMcpServer(p21Server);
+            }
+
+            // Add POR if not exists
+            if (!newServers.some(s => s.name.includes('Point of Rental (POR) Jet'))) {
+                newServers.push(porServer);
+                await saveMcpServer(porServer);
+            }
+
+            // Update or Add Library servers
+            for (const libServer of libraryMatches) {
+                const existing = newServers.find(s => s.name === libServer.name);
+                if (existing) {
+                    if (!existing.isLoaded) {
+                        existing.isLoaded = true;
+                        await saveMcpServer(existing);
+                    }
+                } else {
+                    // If for some reason it's missing from DB but in our static list
+                    newServers.push(libServer);
+                    await saveMcpServer(libServer);
+                }
+            }
+
+            setAllServersState(newServers);
+            invalidateQuery(['mcpServers']);
+            invalidateQuery(['loadedMcpServers']);
+            
+            alert("Successfully created P21 & POR interfaces and loaded matching library MCPs.");
+
+        } catch (e) {
+            console.error("Auto-configuration failed", e);
+            alert("Failed to auto-configure sources.");
+        } finally {
+            setIsConfiguring(false);
+        }
+    };
+
+    const handleSearchRegistry = async () => {
+        setIsSearchingRegistry(true);
+        // Simulate network delay for "searching online"
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        const existingNames = new Set(allServersState.map(s => s.name));
+        // Select 1-3 random new servers to "find"
+        const newServers = extraMarketplaceMcps
+            .filter(s => !existingNames.has(s.name))
+            .filter(() => Math.random() > 0.2) // Random chance to find each
+            .map((s, i) => ({
+                ...s,
+                id: `market-new-${Date.now()}-${i}`,
+                isInstalled: false,
+                isLoaded: false
+            } as McpServer));
+
+        if (newServers.length > 0) {
+            const updatedState = [...allServersState, ...newServers];
+            setAllServersState(updatedState);
+            // Persist them so they stay in the list
+            for (const s of newServers) {
+                await saveMcpServer(s);
+            }
+            invalidateQuery(['mcpServers']);
+        }
+        setIsSearchingRegistry(false);
+    };
+
+    // Filtering Logic
+    // Library: Show "Official" OR "Marketplace" types that ARE installed.
+    const libraryServers = allServersState.filter(s => (s.type === 'Official' || s.type === 'Marketplace') && s.isInstalled);
+    
+    // Custom: Show only "Custom" type.
     const customServers = allServersState.filter(s => s.type === 'Custom');
+    
+    // Marketplace: Show all "Marketplace" type servers (installed or not).
     const marketplaceServers = allServersState.filter(s => s.type === 'Marketplace');
+    
+    // Apply Search Filter to Marketplace
+    const filteredMarketplaceServers = marketplaceServers.filter(s => 
+        s.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        s.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (s.category && s.category.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
 
     return (
         <div className="space-y-6">
@@ -230,14 +384,25 @@ const McpProtocol: React.FC = () => {
             {activeTab === 'library' && (
                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
                     <Card>
-                        <div className="flex justify-between items-center mb-4">
+                        <div className="flex justify-between items-center mb-4 gap-2 flex-wrap">
                             <h2 className="text-xl font-bold text-white">Custom Servers</h2>
-                             <Button variant="primary" className="text-sm py-1" onClick={() => setIsWizardOpen(true)}>+ New Custom MCP</Button>
+                            <div className="flex gap-2">
+                                <Button 
+                                    variant="secondary" 
+                                    className="text-xs py-1 px-2" 
+                                    onClick={handleAutoConfigure}
+                                    disabled={isConfiguring}
+                                    title="Create P21/POR Adapters and load needed sources"
+                                >
+                                    {isConfiguring ? 'Configuring...' : 'Auto-Configure Sources'}
+                                </Button>
+                                <Button variant="primary" className="text-xs py-1 px-2" onClick={() => setIsWizardOpen(true)}>+ New Custom MCP</Button>
+                            </div>
                         </div>
                          <ServerList servers={customServers} onToggleLoad={handleToggleLoad} isLoading={isLoading} />
                     </Card>
                      <Card>
-                        <h2 className="text-xl font-bold text-white mb-4">Installed from Marketplace</h2>
+                        <h2 className="text-xl font-bold text-white mb-4">My Installed Connectors</h2>
                          <ServerList servers={libraryServers} onToggleLoad={handleToggleLoad} isLoading={isLoading} />
                     </Card>
                 </div>
@@ -245,10 +410,49 @@ const McpProtocol: React.FC = () => {
 
             {activeTab === 'marketplace' && (
                 <Card>
-                     <h2 className="text-xl font-bold text-white mb-4">Connector Marketplace</h2>
-                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {marketplaceServers.map(s => <MarketplaceCard key={s.id} server={s} onInstall={handleInstallMarketplace} />)}
+                     <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
+                        <h2 className="text-xl font-bold text-white">Connector Marketplace</h2>
+                        <div className="flex items-center gap-2 flex-grow md:flex-grow-0">
+                            <div className="relative">
+                                <input 
+                                    type="text" 
+                                    placeholder="Search connectors..." 
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                    className="bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white text-sm focus:ring-2 focus:ring-cyan-500 focus:outline-none w-64"
+                                />
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400 absolute right-3 top-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                            </div>
+                            <Button 
+                                variant="secondary" 
+                                onClick={handleSearchRegistry}
+                                disabled={isSearchingRegistry}
+                                className="whitespace-nowrap text-sm"
+                            >
+                                {isSearchingRegistry ? (
+                                    <span className="flex items-center gap-2">
+                                        <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+                                        Searching...
+                                    </span>
+                                ) : (
+                                    'Find Additional MCPs'
+                                )}
+                            </Button>
+                        </div>
                      </div>
+                     
+                     {filteredMarketplaceServers.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {filteredMarketplaceServers.map(s => <MarketplaceCard key={s.id} server={s} onInstall={handleInstallMarketplace} />)}
+                        </div>
+                     ) : (
+                        <div className="text-center py-12 border-2 border-dashed border-slate-700 rounded-lg">
+                            <p className="text-slate-400 mb-2">No connectors found.</p>
+                            <p className="text-xs text-slate-500">Try searching for "Salesforce", "Jira", or click "Find Additional MCPs" to refresh the online registry.</p>
+                        </div>
+                     )}
                 </Card>
             )}
 
@@ -261,21 +465,28 @@ const ServerList: React.FC<{ servers: McpServer[], onToggleLoad: (s: McpServer) 
 ({ servers, onToggleLoad, isLoading }) => (
     <div className="flex-grow overflow-y-auto space-y-3 pr-2 -mr-2 max-h-[250px]">
         {isLoading ? <p className="text-slate-400">Loading...</p> : servers.length > 0 ? servers.map(server => (
-            <div key={server.id} className="p-3 bg-slate-900/50 rounded-lg">
+            <div key={server.id} className="p-3 bg-slate-900/50 rounded-lg group relative">
                 <div className="flex justify-between items-start">
-                    <div>
+                    <div className="pr-16">
                         <p className="font-semibold text-slate-200">{server.name}</p>
                         <p className="text-xs text-slate-400">{server.description}</p>
-                        <p className="text-xs text-cyan-400 font-mono mt-1">{server.url}</p>
+                        <p className="text-xs text-cyan-400 font-mono mt-1 truncate">{server.url}</p>
                     </div>
                      <Button 
                         variant={server.isLoaded ? 'danger' : 'primary'}
                         onClick={() => onToggleLoad(server)}
-                        className="px-3 py-1 text-sm whitespace-nowrap"
+                        className="px-3 py-1 text-sm whitespace-nowrap absolute top-3 right-3"
                     >
                         {server.isLoaded ? 'Unload' : 'Load'}
                     </Button>
                 </div>
+                {/* Quick view of generated code for simulation effect */}
+                <details className="mt-2">
+                    <summary className="text-xs text-slate-500 cursor-pointer hover:text-slate-300 w-fit">View Code</summary>
+                    <pre className="mt-2 p-2 bg-slate-950 rounded text-xs font-mono text-cyan-300 overflow-x-auto">
+                        {generateMcpCode(server)}
+                    </pre>
+                </details>
             </div>
         )) : <p className="text-center text-slate-500 py-4 text-sm">No servers in this category.</p>}
     </div>

@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { executeQuery, getTableSchemas, searchSchemaWithAi } from '../services/api';
 import { schemaMetadata } from '../data/schemaMetadata';
+import AddSqlToSchemaModal from './AddSqlToSchemaModal';
 
 const DataTable = ({ headers, data }: { headers: string[], data: any[] }) => {
   return (
@@ -91,6 +92,8 @@ const StructuredDataExplorer: React.FC = () => {
     const [sources, setSources] = useState<string[]>([]);
     const [selectedSource, setSelectedSource] = useState('All');
     const [tableSearchTerm, setTableSearchTerm] = useState('');
+
+    const [isPipelineModalOpen, setIsPipelineModalOpen] = useState(false);
 
     const loadInitialData = async () => {
         setIsSchemaLoading(true);
@@ -208,13 +211,22 @@ const StructuredDataExplorer: React.FC = () => {
                         className="w-full h-32 bg-slate-900 border border-slate-600 rounded-lg p-3 font-mono text-cyan-300 focus:ring-2 focus:ring-cyan-500 focus:outline-none"
                         placeholder="SELECT * FROM p21_customers;"
                     />
-                    <button 
-                        onClick={handleRunQuery}
-                        disabled={isLoading}
-                        className="w-full mt-2 bg-cyan-500 text-white font-semibold px-4 py-2 rounded-lg hover:bg-cyan-600 transition-colors disabled:bg-slate-600 disabled:cursor-not-allowed"
-                    >
-                        {isLoading ? 'Running...' : 'Run Query'}
-                    </button>
+                    <div className="flex gap-2 mt-2">
+                        <button 
+                            onClick={handleRunQuery}
+                            disabled={isLoading}
+                            className="flex-1 bg-cyan-500 text-white font-semibold px-4 py-2 rounded-lg hover:bg-cyan-600 transition-colors disabled:bg-slate-600 disabled:cursor-not-allowed"
+                        >
+                            {isLoading ? 'Running...' : 'Run Query'}
+                        </button>
+                        <button
+                            onClick={() => setIsPipelineModalOpen(true)}
+                            className="flex-1 bg-slate-700 text-white font-semibold px-4 py-2 rounded-lg hover:bg-slate-600 transition-colors border border-slate-600"
+                            title="Create a reusable pipeline from this SQL"
+                        >
+                            Define Pipeline from SQL
+                        </button>
+                    </div>
                 </div>
                  <div className="flex-grow flex flex-col min-h-0 space-y-4">
                     <div className="flex-grow flex flex-col min-h-0">
@@ -327,6 +339,12 @@ const StructuredDataExplorer: React.FC = () => {
                     {!isLoading && queryResult && `${queryResult.data.length} rows returned.`}
                 </div>
             </div>
+            
+            <AddSqlToSchemaModal 
+                isOpen={isPipelineModalOpen} 
+                onClose={() => setIsPipelineModalOpen(false)} 
+                initialSql={executedQuery || query} 
+            />
         </div>
     );
 };

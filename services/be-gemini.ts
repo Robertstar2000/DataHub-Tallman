@@ -1,8 +1,4 @@
 
-
-
-
-
 import { GoogleGenAI, Chat, Type, FunctionDeclaration } from "@google/genai";
 import { unstructuredData } from '../data/unstructuredData';
 import { executeQuery as executeDbQuery, getTableSchemas, findSimilarDocumentsByQuery, getWorkflows } from './be-db';

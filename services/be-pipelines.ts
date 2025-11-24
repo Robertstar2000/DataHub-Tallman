@@ -1,13 +1,52 @@
 
-import { executeQuery } from './be-db';
+
+
+import { executeQuery, getDataSourceMode } from './be-db';
 import type { Workflow } from '../types';
 
 // A helper to introduce a delay to make the process feel more real
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+// --- Test Server Simulation ---
+class TestServer {
+    static async generateOrderData(count: number) {
+        const customers = [1, 2];
+        const items = ['CB-PRO', 'QM-01', 'MK-ULTRA'];
+        const orders = [];
+        for(let i=0; i<count; i++) {
+            orders.push({
+                orderNum: Math.floor(10000 + Math.random() * 90000),
+                customerId: customers[Math.floor(Math.random() * customers.length)],
+                date: new Date().toISOString().split('T')[0],
+                itemId: items[Math.floor(Math.random() * items.length)],
+                qty: Math.floor(Math.random() * 5) + 1
+            });
+        }
+        return orders;
+    }
+}
+
 // Specific logic for 'Ingest Customer Orders'
 // This will simulate adding a new order to the P21 ERP system
 const runIngestCustomerOrders = async (logCallback: (message: string) => void): Promise<boolean> => {
+    const mode = getDataSourceMode();
+    logCallback(`[INFO] Pipeline Mode: ${mode.toUpperCase()}`);
+
+    if (mode === 'real') {
+        await delay(800);
+        logCallback(`[INFO] Initiating secure connection to mcp://p21.internal:1433...`);
+        await delay(1200);
+        logCallback(`[INFO] Authenticating with service account... Success.`);
+        await delay(1000);
+        logCallback(`[INFO] Polling for new transactions since last cursor...`);
+        await delay(1500);
+        logCallback(`[WARN] No new records found in production stream. Connection closed.`);
+        return true; // Finished successfully, just no data
+    }
+
+    // TEST MODE: Generate Data
+    logCallback(`[INFO] Connecting to Test Data Generator...`);
+    
     // Get random customer and items from the DB
     const customersResult = await executeQuery("SELECT customer_id FROM p21_customers ORDER BY RANDOM() LIMIT 1");
     const itemsResult = await executeQuery("SELECT item_id, unit_price FROM p21_items ORDER BY RANDOM() LIMIT 2");
@@ -25,7 +64,7 @@ const runIngestCustomerOrders = async (logCallback: (message: string) => void): 
     const orderDate = new Date().toISOString().split('T')[0];
 
     await delay(500);
-    logCallback(`[INFO] New order event received from Kafka stream: Order ${orderNum}`);
+    logCallback(`[INFO] [Test Server] New order event received from Kafka stream: Order ${orderNum}`);
     
     // Create order lines
     let totalAmount = 0;
@@ -129,6 +168,81 @@ const runCalculateDailyMetrics = async (logCallback: (message: string) => void):
     return true;
 }
 
+// Generic logic for user-created SQL pipelines
+const runGenericSqlPipeline = async (workflow: Workflow, logCallback: (message: string) => void): Promise<boolean> => {
+    if (!workflow.transformerCode) {
+        logCallback(`[ERROR] No SQL logic found in workflow.`);
+        return false;
+    }
+    if (!workflow.destination) {
+        logCallback(`[ERROR] No destination table specified.`);
+        return false;
+    }
+
+    logCallback(`[INFO] Pipeline Type: Custom SQL Transformation`);
+    logCallback(`[INFO] Source: ${workflow.sources?.join(', ') || 'Unknown'}`);
+    logCallback(`[INFO] Destination: ${workflow.destination}`);
+
+    await delay(500);
+    logCallback(`[INFO] Preparing destination table '${workflow.destination}'...`);
+    
+    // In a real ELT, we might truncate or append. Here we'll try to create as Select (CTAS) simulation
+    // Since SQL.js doesn't strictly support "CREATE TABLE AS SELECT" easily with unknown schemas, 
+    // we'll execute the user's SQL to get results, then create the table based on those results.
+    
+    try {
+        logCallback(`[INFO] Executing transformation logic...`);
+        const result = await executeQuery(workflow.transformerCode);
+        
+        if ('error' in result) {
+            logCallback(`[ERROR] SQL Execution Failed: ${result.error}`);
+            return false;
+        }
+
+        const rows = result.data;
+        if (rows.length === 0) {
+            logCallback(`[WARN] Query returned 0 rows. No data to write.`);
+            return true;
+        }
+
+        await delay(500);
+        logCallback(`[INFO] Query returned ${rows.length} rows. Inferring schema...`);
+
+        // Drop existing
+        await executeQuery(`DROP TABLE IF EXISTS ${workflow.destination}`);
+
+        // Create new table based on first row keys
+        const firstRow = rows[0];
+        const columns = Object.keys(firstRow).map(key => {
+            const val = firstRow[key];
+            const type = typeof val === 'number' ? (Number.isInteger(val) ? 'INTEGER' : 'REAL') : 'TEXT';
+            return `${key} ${type}`;
+        }).join(', ');
+
+        await executeQuery(`CREATE TABLE ${workflow.destination} (${columns})`);
+        logCallback(`[INFO] Created table ${workflow.destination} (${columns})`);
+
+        // Insert data
+        logCallback(`[INFO] Writing batch...`);
+        for (const row of rows) {
+            const values = Object.values(row).map(v => {
+                if (v === null) return 'NULL';
+                if (typeof v === 'string') return `'${v.replace(/'/g, "''")}'`;
+                return v;
+            }).join(', ');
+            await executeQuery(`INSERT INTO ${workflow.destination} VALUES (${values})`);
+        }
+
+        await delay(300);
+        logCallback(`[SUCCESS] Pipeline completed. ${rows.length} records written.`);
+        return true;
+
+    } catch (e: any) {
+        logCallback(`[CRITICAL] System Error: ${e.message}`);
+        return false;
+    }
+};
+
 // A placeholder for workflows not yet implemented
 const runNotImplemented = async (logCallback: (message: string) => void): Promise<boolean> => {
     await delay(500);
@@ -146,16 +260,22 @@ export const executeWorkflow = async (
     
     try {
         let success = false;
-        switch(workflow.id) {
-            case 'wf-ingest-p21-orders':
-                success = await runIngestCustomerOrders(logCallback);
-                break;
-            case 'wf-calculate-daily-metrics':
-                success = await runCalculateDailyMetrics(logCallback);
-                break;
-            default:
-                success = await runNotImplemented(logCallback);
-                break;
+        
+        // Check for generic SQL pipeline first (usually identified by transformer type or ID pattern)
+        if (workflow.transformer === 'Custom SQL' || workflow.id.startsWith('wf-sql-')) {
+            success = await runGenericSqlPipeline(workflow, logCallback);
+        } else {
+            switch(workflow.id) {
+                case 'wf-ingest-p21-orders':
+                    success = await runIngestCustomerOrders(logCallback);
+                    break;
+                case 'wf-calculate-daily-metrics':
+                    success = await runCalculateDailyMetrics(logCallback);
+                    break;
+                default:
+                    success = await runNotImplemented(logCallback);
+                    break;
+            }
         }
 
         if (success) {

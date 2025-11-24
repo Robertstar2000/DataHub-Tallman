@@ -1,11 +1,11 @@
 
-
 import React, { useState, useRef, useEffect, useContext, useMemo } from 'react';
 import Card from './Card';
 import type { Workflow, WorkflowStatus, McpServer } from '../types';
 import { executeWorkflow, getWorkflows, saveWorkflow, deleteWorkflow as apiDeleteWorkflow, getLoadedMcpServers } from '../services/api';
 import { ErrorContext } from '../contexts/ErrorContext';
 import { otherInterfaces } from '../data/mcpServers';
+import { useUser } from '../contexts/UserContext';
 
 const statusColors: Record<WorkflowStatus, { bg: string; text: string; dot: string; border: string; }> = {
   Live: { bg: 'bg-green-500/10', text: 'text-green-400', dot: 'bg-green-500', border: 'border-green-500/50' },
@@ -253,6 +253,7 @@ const ExecutionLogModal: React.FC<{ workflow: Workflow, onClose: () => void, log
 
 // FIX: Removed empty const declaration which caused a syntax error.
 const WorkflowManager: React.FC = () => {
+  const { canEdit } = useUser();
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [allWorkflows, setAllWorkflows] = useState<Workflow[]>([]); // For dependency picker
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
@@ -288,11 +289,13 @@ const WorkflowManager: React.FC = () => {
   }, []);
 
   const handleEdit = (workflow: Workflow) => {
+    if (!canEdit) return;
     setSelectedWorkflow(workflow);
     setView('edit');
   };
   
   const handleCreate = () => {
+    if (!canEdit) return;
     setSelectedWorkflow({
         id: `wf-${Date.now()}`,
         name: 'New Workflow',
@@ -311,6 +314,7 @@ const WorkflowManager: React.FC = () => {
   };
 
   const handleSave = async (workflowToSave: Workflow) => {
+    if (!canEdit) return;
     try {
       await saveWorkflow(workflowToSave, false);
       await loadData();
@@ -322,6 +326,7 @@ const WorkflowManager: React.FC = () => {
   };
 
   const handleDelete = async (workflowId: string) => {
+    if (!canEdit) return;
     if (window.confirm('Are you sure you want to delete this workflow?')) {
       try {
         await apiDeleteWorkflow(workflowId);
@@ -377,9 +382,11 @@ const WorkflowManager: React.FC = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-white">Workflow Manager</h1>
-        <button onClick={handleCreate} className="bg-cyan-500 text-white font-semibold px-4 py-2 rounded-lg hover:bg-cyan-600">
-            + New Workflow
-        </button>
+        {canEdit && (
+            <button onClick={handleCreate} className="bg-cyan-500 text-white font-semibold px-4 py-2 rounded-lg hover:bg-cyan-600">
+                + New Workflow
+            </button>
+        )}
       </div>
       <p className="text-slate-400 max-w-3xl">
           Design, monitor, and manage the automated data pipelines that power your data lake.
@@ -402,10 +409,14 @@ const WorkflowManager: React.FC = () => {
             </div>
             <div className="border-t border-slate-700/50 mt-4 pt-4 flex gap-2">
                 <button onClick={() => handleRun(wf)} className="flex-1 btn-secondary text-sm">Run</button>
-                <button onClick={() => handleEdit(wf)} className="flex-1 btn-secondary text-sm">Edit</button>
-                <button onClick={() => handleDelete(wf.id)} className="w-10 bg-red-800/80 text-white rounded-lg flex items-center justify-center hover:bg-red-800">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                </button>
+                {canEdit && (
+                    <button onClick={() => handleEdit(wf)} className="flex-1 btn-secondary text-sm">Edit</button>
+                )}
+                {canEdit && (
+                    <button onClick={() => handleDelete(wf.id)} className="w-10 bg-red-800/80 text-white rounded-lg flex items-center justify-center hover:bg-red-800">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    </button>
+                )}
             </div>
           </Card>
         ))}
