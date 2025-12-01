@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import Card from './Card';
 import { MarkdownRenderer } from './MarkdownRenderer';
@@ -19,6 +18,7 @@ interface Document {
 const documents: Document[] = [
   { key: 'user_instructions', title: 'User Instructions', path: '/user_instructions.md', description: 'Step-by-step guide for using the application.' },
   { key: 'full_list_features', title: 'Full Feature List', path: '/full_list_features.md', description: 'A comprehensive list of all platform features.' },
+  { key: 'migration_plan', title: 'Migration to Production', path: '/migration_plan.md', description: 'Technical plan to migrate to MS Server + Ollama.' },
   { key: 'code_architecture', title: 'Code Architecture', path: '/code_architecture.md', description: 'Technical deep-dive into the application structure.' },
   { key: 'mcp_requirements', title: 'MCP Requirements', path: '/MCP_requirements.md', description: 'Technical specifications for the MCP interface.' },
   { key: 'interfaces_requirements', title: 'Interface Requirements', path: '/interfaces_requirements.md', description: 'Technical specifications for other system interfaces.' },
