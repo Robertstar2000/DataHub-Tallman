@@ -143,6 +143,40 @@ Refactor `services/api.ts`.
 
 ---
 
+## Phase 8: DNS & Domain Configuration (DataHub)
+
+**Goal:** Make the application accessible via the custom URL `http://DataHub.Tallman.com` throughout the corporate network.
+
+**Steps:**
+
+1.  **DNS Configuration (Domain Controller):**
+    *   Log in to the DNS Server for the `Tallman.com` domain.
+    *   Create a new **CNAME Record** (Alias) or **A Record**.
+    *   **Name:** `DataHub`
+    *   **Target/IP:** Point to the static IP address of the Windows Server hosting the application (e.g., `192.168.1.50`).
+    *   Propagate the DNS changes (can take 15-60 minutes).
+
+2.  **IIS Binding (Web Server):**
+    *   Open **IIS Manager** on the application server.
+    *   Select the site serving the frontend (e.g., `datahub-ui`).
+    *   Click **Bindings** in the Actions pane.
+    *   Add a new **Site Binding**:
+        *   **Type:** `http`
+        *   **IP Address:** `All Unassigned`
+        *   **Port:** `80`
+        *   **Host Name:** `DataHub.Tallman.com`
+    *   (Optional) If HTTPS is required, obtain an SSL certificate for `*.Tallman.com` or `DataHub.Tallman.com` and add an `https` binding on port 443.
+
+3.  **Firewall Rules:**
+    *   Ensure Windows Firewall allows inbound traffic on Port 80 (HTTP) and 443 (HTTPS) for the "Domain" profile.
+
+4.  **Verification:**
+    *   From a client machine on the network, open a browser.
+    *   Navigate to `http://DataHub.Tallman.com`.
+    *   Verify the application loads correctly.
+
+---
+
 ## Notes on Llama 3.2 Compatibility
 
 *   **Prompt Engineering:** Llama 3.2 is less forgiving with complex JSON schemas than Gemini 1.5/2.5. You may need to simplify the "Function Calling" logic in Phase 3. Instead of defining tools, instruct the model in the system prompt: *"You are a SQL generator. Output ONLY valid SQL. Do not output markdown."*
